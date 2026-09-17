@@ -16,7 +16,7 @@ COPY . .
 
 # Аргумент сборки для адреса API бэкенда (вшивается в Next.js во время next build)
 ARG NEXT_PUBLIC_API_URL
-ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 
 # Отключение телеметрии Next.js
 ENV NEXT_TELEMETRY_DISABLED=1
