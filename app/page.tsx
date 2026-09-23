@@ -261,7 +261,18 @@ export default function DashboardPage() {
   // Обновление одного пункта в локальном стейте
   const handleItemUpdated = (updatedItem: PlanItem) => {
     setItems((prev) =>
-      prev.map((i) => (i.id === updatedItem.id ? updatedItem : i))
+      prev.map((i) => {
+        if (i.id !== updatedItem.id) return i;
+        return {
+          ...i,
+          ...updatedItem,
+          smartMeta: updatedItem.smartMeta !== undefined ? updatedItem.smartMeta : i.smartMeta,
+          salesPercent: updatedItem.salesPercent !== undefined ? updatedItem.salesPercent : i.salesPercent,
+          salesHistoryWeeks: updatedItem.salesHistoryWeeks !== undefined ? updatedItem.salesHistoryWeeks : i.salesHistoryWeeks,
+          rawAbcCategory: updatedItem.rawAbcCategory ?? i.rawAbcCategory,
+          rawIsHit: updatedItem.rawIsHit ?? i.rawIsHit,
+        };
+      })
     );
   };
 

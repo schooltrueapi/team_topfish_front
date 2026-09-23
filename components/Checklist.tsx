@@ -23,6 +23,7 @@ import {
    User,
 } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
+import BulkPlanModal, { BulkActionType } from './BulkPlanModal'
 
 export interface PlanItem {
    id: string
@@ -38,8 +39,17 @@ export interface PlanItem {
    updatedAt?: string
    resultStatus?: string | null
    reasonComment?: string | null
+   abcCategory?: 'A' | 'B' | 'C' | null
+   rawAbcCategory?: 'A' | 'B' | 'C' | null
+   salesPercent?: number | null
+   salesHistoryWeeks?: number | null
+   isHit?: boolean
+   rawIsHit?: boolean
+   abcConfirmedAt?: string | null
+   abcExpiresAt?: string | null
+   abcManualDisabled?: boolean
    smartMeta?: {
-      tag: 'HIT_REPEAT' | 'LONG_TIME_NO_PLAN' | 'LAST_WEEK_UNFINISHED' | 'LOW_STOCK' | null
+      tag: 'HIT_REPEAT' | 'LONG_TIME_NO_PLAN' | 'LAST_WEEK_UNFINISHED' | 'LOW_STOCK' | 'STAGNANT_STOCK' | null
       priority: number
       icon?: string
       badgeText: string
@@ -140,14 +150,32 @@ export default function Checklist({
    const [selectedCategory, setSelectedCategory] = useState('ALL')
    const [isTogglingId, setIsTogglingId] = useState<string | null>(null)
    const [isTogglingNewId, setIsTogglingNewId] = useState<string | null>(null)
+   const [isTogglingAbcId, setIsTogglingAbcId] = useState<string | null>(null)
    const [isDeletingId, setIsDeletingId] = useState<string | null>(null)
    const [isConfirmingPlan, setIsConfirmingPlan] = useState(false)
+   const [isBulkLoading, setIsBulkLoading] = useState(false)
+   const [bulkModalConfig, setBulkModalConfig] = useState<{
+      isOpen: boolean
+      actionType: BulkActionType
+      title: string
+      description?: string
+      items: PlanItem[]
+   } | null>(null)
    const [isSyncingPrice, setIsSyncingPrice] = useState(false)
    const [isSyncingDostavka, setIsSyncingDostavka] = useState(false)
    const [isSyncingAll, setIsSyncingAll] = useState(false)
    const [hoveredTooltip, setHoveredTooltip] = useState<{
       item: PlanItem
       rect: DOMRect
+      customContent?: {
+         icon: string
+         title: string
+         titleColor?: string
+         subtitle?: string
+         description: string
+         recommendation?: string
+         footerHint?: string
+      }
    } | null>(null)
    const [longTimeDurationFilter, setLongTimeDurationFilter] = useState<'all' | '2' | '3' | '4' | '5plus'>('all')
 
@@ -179,9 +207,15 @@ export default function Checklist({
          return false
       }
       // Быстрый фильтр
+      const isItemHit = !item.abcManualDisabled && (Boolean(item.isHit) || item.smartMeta?.tag === 'HIT_REPEAT')
+
       if (currentFilter === 'planned' && !item.isPlanned) return false
       if (currentFilter === 'unplanned' && item.isPlanned) return false
-      if (currentFilter === 'hits' && item.smartMeta?.tag !== 'HIT_REPEAT') return false
+      if (currentFilter === 'hits' && !isItemHit) return false
+      if (currentFilter === 'catA' && (item.abcCategory !== 'A' || isItemHit)) return false
+      if (currentFilter === 'catB' && (item.abcCategory !== 'B' || isItemHit)) return false
+      if (currentFilter === 'catC' && (item.abcCategory !== 'C' || isItemHit)) return false
+      if (currentFilter === 'stagnant' && item.smartMeta?.tag !== 'STAGNANT_STOCK') return false
       if (currentFilter === 'longTime') {
          if (item.smartMeta?.tag !== 'LONG_TIME_NO_PLAN') return false
          const cw = item.smartMeta?.consecutiveWeeks || 2
@@ -207,7 +241,11 @@ export default function Checklist({
    })
 
    const plannedCount = items.filter((i) => i.isPlanned).length
-   const hitsCount = items.filter((i) => i.smartMeta?.tag === 'HIT_REPEAT').length
+   const hitsCount = items.filter((i) => !i.abcManualDisabled && (i.isHit || i.smartMeta?.tag === 'HIT_REPEAT')).length
+   const catACount = items.filter((i) => !i.abcManualDisabled && i.abcCategory === 'A' && !i.isHit && i.smartMeta?.tag !== 'HIT_REPEAT').length
+   const catBCount = items.filter((i) => !i.abcManualDisabled && i.abcCategory === 'B' && !i.isHit && i.smartMeta?.tag !== 'HIT_REPEAT').length
+   const catCCount = items.filter((i) => !i.abcManualDisabled && i.abcCategory === 'C' && !i.isHit && i.smartMeta?.tag !== 'HIT_REPEAT').length
+   const stagnantCount = items.filter((i) => i.smartMeta?.tag === 'STAGNANT_STOCK').length
    const longTimeCount = items.filter((i) => i.smartMeta?.tag === 'LONG_TIME_NO_PLAN').length
    const unfinishedCount = items.filter((i) => i.smartMeta?.tag === 'LAST_WEEK_UNFINISHED').length
 
@@ -299,7 +337,18 @@ export default function Checklist({
       try {
          setIsTogglingId(item.id)
          const res = await api.put(`/api/plan/item/${item.id}/toggle`)
-         onItemUpdated(res.data)
+         onItemUpdated({
+            ...item,
+            ...res.data,
+            abcCategory: item.abcCategory,
+            rawAbcCategory: item.rawAbcCategory,
+            isHit: item.isHit,
+            rawIsHit: item.rawIsHit,
+            salesPercent: item.salesPercent,
+            salesHistoryWeeks: item.salesHistoryWeeks,
+            smartMeta: item.smartMeta,
+            abcManualDisabled: item.abcManualDisabled,
+         })
       } catch (err: any) {
          toast.error(err.response?.data?.error || 'Ошибка изменения статуса')
       } finally {
@@ -315,7 +364,18 @@ export default function Checklist({
       try {
          setIsTogglingNewId(item.id)
          const res = await api.put(`/api/plan/item/${item.id}/toggle-new`)
-         onItemUpdated(res.data)
+         onItemUpdated({
+            ...item,
+            ...res.data,
+            abcCategory: item.abcCategory,
+            rawAbcCategory: item.rawAbcCategory,
+            isHit: item.isHit,
+            rawIsHit: item.rawIsHit,
+            salesPercent: item.salesPercent,
+            salesHistoryWeeks: item.salesHistoryWeeks,
+            smartMeta: item.smartMeta,
+            abcManualDisabled: item.abcManualDisabled,
+         })
          toast.success(
             res.data.isNew
                ? `"${item.productName}" отмечен как новинка`
@@ -330,28 +390,57 @@ export default function Checklist({
       }
    }
 
+   const handleToggleAbc = async (item: PlanItem) => {
+      if (!canTogglePlan) {
+         toast.error('У вашей роли нет прав для изменения маркеров')
+         return
+      }
+      try {
+         setIsTogglingAbcId(item.id)
+         const res = await api.put(`/api/plan/item/${item.id}/toggle-abc`)
+         const newDisabled = Boolean(res.data.abcManualDisabled)
+         const originalAbc = item.rawAbcCategory || item.abcCategory
+         const originalHit = item.rawIsHit !== undefined ? item.rawIsHit : item.isHit
+
+         onItemUpdated({
+            ...item,
+            abcManualDisabled: newDisabled,
+            abcCategory: newDisabled ? null : originalAbc,
+            isHit: newDisabled ? false : originalHit,
+            rawAbcCategory: originalAbc,
+            rawIsHit: originalHit,
+         })
+         toast.success(
+            newDisabled
+               ? `Маркер снят с "${item.productName}"`
+               : `Маркер возвращен для "${item.productName}"`
+         )
+      } catch (err: any) {
+         toast.error(
+            err.response?.data?.error || 'Ошибка переключения маркера'
+         )
+      } finally {
+         setIsTogglingAbcId(null)
+      }
+   }
+
    const handleSelectAllNovelties = async () => {
       if (!canTogglePlan) {
          toast.error('У вашей роли нет прав для изменения плана недели')
          return
       }
-      const noveltyIds = items
-         .filter((i) => i.isNew && !i.isPlanned)
-         .map((i) => i.id)
-      if (noveltyIds.length === 0) {
+      const noveltyItems = items.filter((i) => i.isNew && !i.isPlanned)
+      if (noveltyItems.length === 0) {
          toast('Все новинки уже включены в план')
          return
       }
-      try {
-         await api.put('/api/plan/bulk-toggle', {
-            itemIds: noveltyIds,
-            isPlanned: true,
-         })
-         toast.success(`В план добавлено ${noveltyIds.length} новинок!`)
-         onBulkUpdated()
-      } catch (err) {
-         toast.error('Ошибка массового включения')
-      }
+      setBulkModalConfig({
+         isOpen: true,
+         actionType: 'NOVELTIES',
+         title: 'Добавить все новинки в план?',
+         description: 'Новые позиции из загруженного каталога 1С',
+         items: noveltyItems,
+      })
    }
 
    const handleSelectAllHits = async () => {
@@ -359,23 +448,21 @@ export default function Checklist({
          toast.error('У вашей роли нет прав для изменения плана недели')
          return
       }
-      const hitIds = items
-         .filter((i) => i.smartMeta?.tag === 'HIT_REPEAT' && !i.isPlanned)
-         .map((i) => i.id)
-      if (hitIds.length === 0) {
+      const hitItems = items.filter(
+         (i) => i.smartMeta?.tag === 'HIT_REPEAT' && !i.isPlanned
+      )
+      if (hitItems.length === 0) {
          toast('Все разлетевшиеся хиты уже включены в план! 🔥')
          return
       }
-      try {
-         await api.put('/api/plan/bulk-toggle', {
-            itemIds: hitIds,
-            isPlanned: true,
-         })
-         toast.success(`В план добавлено ${hitIds.length} хитов (разлетелись)! 🔥`)
-         onBulkUpdated()
-      } catch (err) {
-         toast.error('Ошибка массового включения')
-      }
+      setBulkModalConfig({
+         isOpen: true,
+         actionType: 'HITS',
+         title: 'Добавить все хиты в план?',
+         description:
+            'Товары, которые производились на прошлой неделе и были полностью раскуплены (остаток 0 кг)',
+         items: hitItems,
+      })
    }
 
    const handleSelectAllForgotten = async () => {
@@ -383,23 +470,24 @@ export default function Checklist({
          toast.error('У вашей роли нет прав для изменения плана недели')
          return
       }
-      const forgottenIds = items
-         .filter((i) => (i.smartMeta?.tag === 'LONG_TIME_NO_PLAN' || i.smartMeta?.tag === 'LAST_WEEK_UNFINISHED') && !i.isPlanned)
-         .map((i) => i.id)
-      if (forgottenIds.length === 0) {
+      const forgottenItems = items.filter(
+         (i) =>
+            (i.smartMeta?.tag === 'LONG_TIME_NO_PLAN' ||
+               i.smartMeta?.tag === 'LAST_WEEK_UNFINISHED') &&
+            !i.isPlanned
+      )
+      if (forgottenItems.length === 0) {
          toast('Все забытые позиции уже в плане!')
          return
       }
-      try {
-         await api.put('/api/plan/bulk-toggle', {
-            itemIds: forgottenIds,
-            isPlanned: true,
-         })
-         toast.success(`В план добавлено ${forgottenIds.length} забытых позиций! ⏳`)
-         onBulkUpdated()
-      } catch (err) {
-         toast.error('Ошибка массового включения')
-      }
+      setBulkModalConfig({
+         isOpen: true,
+         actionType: 'FORGOTTEN',
+         title: 'Добавить забытые позиции в план?',
+         description:
+            'Товары с 0 остатком, которые не производились 2 недели и более',
+         items: forgottenItems,
+      })
    }
 
    const handleSelectAllOutOfStock = async () => {
@@ -407,41 +495,84 @@ export default function Checklist({
          toast.error('У вашей роли нет прав для изменения плана недели')
          return
       }
-      const zeroStockIds = items
-         .filter((i) => (i.stockKg ?? 0) === 0 && !i.isPlanned)
-         .map((i) => i.id)
-      if (zeroStockIds.length === 0) {
+      const zeroStockItems = items.filter(
+         (i) => (i.stockKg ?? 0) === 0 && !i.isPlanned
+      )
+      if (zeroStockItems.length === 0) {
          toast('Все дефицитные позиции уже в плане')
          return
       }
-      try {
-         await api.put('/api/plan/bulk-toggle', {
-            itemIds: zeroStockIds,
-            isPlanned: true,
-         })
-         toast.success(
-            `В план добавлено ${zeroStockIds.length} позиций дефицита!`
-         )
-         onBulkUpdated()
-      } catch (err) {
-         toast.error('Ошибка массового включения')
-      }
+      setBulkModalConfig({
+         isOpen: true,
+         actionType: 'DEFICIT',
+         title: 'Добавить весь дефицит в план?',
+         description:
+            'Товары со свободным остатком 0 кг на складе (статус «Под заказ»)',
+         items: zeroStockItems,
+      })
    }
 
-   const handleStartProgress = async () => {
+   const handleStartProgress = () => {
       if (plannedCount === 0) {
          toast.error('Отметьте галочками хотя бы одну позицию в плане!')
          return
       }
+      setBulkModalConfig({
+         isOpen: true,
+         actionType: 'APPROVE_PLAN',
+         title: 'Утвердить план недели?',
+         description: `План из ${plannedCount} позиций будет утвержден и передан в работу цеха`,
+         items: [],
+      })
+   }
+
+   const handleConfirmBulkAction = async (selectedIds: string[]) => {
+      if (!bulkModalConfig) return
+
+      if (bulkModalConfig.actionType === 'APPROVE_PLAN') {
+         try {
+            setIsConfirmingPlan(true)
+            await api.post('/api/weeks/start-progress', { weekId })
+            toast.success('План недели утвержден и переведен в работу цеха!')
+            setBulkModalConfig(null)
+            onPlanConfirmed()
+         } catch (err: any) {
+            toast.error(err.response?.data?.error || 'Ошибка утверждения плана')
+         } finally {
+            setIsConfirmingPlan(false)
+         }
+         return
+      }
+
+      if (selectedIds.length === 0) {
+         toast.error('Не выбрано ни одной позиции для добавления')
+         return
+      }
+
       try {
-         setIsConfirmingPlan(true)
-         await api.post('/api/weeks/start-progress', { weekId })
-         toast.success('План недели утвержден и переведен в работу цеха!')
-         onPlanConfirmed()
+         setIsBulkLoading(true)
+         await api.put('/api/plan/bulk-toggle', {
+            itemIds: selectedIds,
+            isPlanned: true,
+         })
+
+         const count = selectedIds.length
+         if (bulkModalConfig.actionType === 'HITS') {
+            toast.success(`В план добавлено ${count} хитов! 🔥`)
+         } else if (bulkModalConfig.actionType === 'NOVELTIES') {
+            toast.success(`В план добавлено ${count} новинок!`)
+         } else if (bulkModalConfig.actionType === 'DEFICIT') {
+            toast.success(`В план добавлено ${count} позиций дефицита!`)
+         } else if (bulkModalConfig.actionType === 'FORGOTTEN') {
+            toast.success(`В план добавлено ${count} забытых позиций! ⏳`)
+         }
+
+         setBulkModalConfig(null)
+         onBulkUpdated()
       } catch (err: any) {
-         toast.error(err.response?.data?.error || 'Ошибка утверждения плана')
+         toast.error(err.response?.data?.error || 'Ошибка массового включения')
       } finally {
-         setIsConfirmingPlan(false)
+         setIsBulkLoading(false)
       }
    }
 
@@ -679,7 +810,71 @@ export default function Checklist({
                         title='Товары, которые производились на прошлой неделе и были полностью раскуплены (остаток 0 кг)'
                      >
                         <span>🔥</span>
-                        <span>Хиты: разлетелись ({hitsCount})</span>
+                        <span>Хиты ({hitsCount})</span>
+                     </button>
+                  )}
+
+                  {/* ⚡ Категория А (Отличный спрос) */}
+                  {catACount > 0 && (
+                     <button
+                        onClick={() => onFilterChange(currentFilter === 'catA' ? 'all' : 'catA')}
+                        className={`px-3 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1 ${
+                           currentFilter === 'catA'
+                              ? 'bg-emerald-600 text-white shadow-sm ring-1 ring-emerald-500'
+                              : 'bg-emerald-50 border border-emerald-200 text-emerald-800 hover:bg-emerald-100'
+                        }`}
+                        title='Категория А: расход остатка от 70% и выше'
+                     >
+                        <span>⚡</span>
+                        <span>Кат. А ({catACount})</span>
+                     </button>
+                  )}
+
+                  {/* 👍 Категория B (Хороший спрос) */}
+                  {catBCount > 0 && (
+                     <button
+                        onClick={() => onFilterChange(currentFilter === 'catB' ? 'all' : 'catB')}
+                        className={`px-3 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1 ${
+                           currentFilter === 'catB'
+                              ? 'bg-blue-600 text-white shadow-sm ring-1 ring-blue-500'
+                              : 'bg-blue-50 border border-blue-200 text-blue-800 hover:bg-blue-100'
+                        }`}
+                        title='Категория B: расход остатка от 30% до 70%'
+                     >
+                        <span>👍</span>
+                        <span>Кат. B ({catBCount})</span>
+                     </button>
+                  )}
+
+                  {/* 📦 Категория C (Умеренный спрос) */}
+                  {catCCount > 0 && (
+                     <button
+                        onClick={() => onFilterChange(currentFilter === 'catC' ? 'all' : 'catC')}
+                        className={`px-3 py-1 rounded-lg text-xs font-semibold transition flex items-center gap-1 ${
+                           currentFilter === 'catC'
+                              ? 'bg-slate-700 text-white shadow-sm ring-1 ring-slate-600'
+                              : 'bg-slate-100 border border-slate-200 text-slate-700 hover:bg-slate-200'
+                        }`}
+                        title='Категория C: расход остатка от 15% до 30%'
+                     >
+                        <span>📦</span>
+                        <span>Кат. C ({catCCount})</span>
+                     </button>
+                  )}
+
+                  {/* ❗ Не продается / Застой остатка */}
+                  {(stagnantCount > 0 || currentFilter === 'stagnant') && (
+                     <button
+                        onClick={() => onFilterChange(currentFilter === 'stagnant' ? 'all' : 'stagnant')}
+                        className={`px-3 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1.5 shadow-xs ${
+                           currentFilter === 'stagnant'
+                              ? 'bg-rose-600 text-white shadow-sm ring-2 ring-rose-400 font-extrabold'
+                              : 'bg-rose-50 border border-rose-200 text-rose-800 hover:bg-rose-100'
+                        }`}
+                        title='Продукция на складе, которая почти не продается (расход до 15% или 0%) — риск залежания рыбы!'
+                     >
+                        <span className='text-sm leading-none font-black text-rose-500 group-hover:text-white'>❗</span>
+                        <span>Не продается ({stagnantCount})</span>
                      </button>
                   )}
 
@@ -911,6 +1106,7 @@ export default function Checklist({
                         const isHit = item.smartMeta?.tag === 'HIT_REPEAT'
                         const isUnfinished = item.smartMeta?.tag === 'LAST_WEEK_UNFINISHED'
                         const isLongTime = item.smartMeta?.tag === 'LONG_TIME_NO_PLAN'
+                        const isStagnant = item.smartMeta?.tag === 'STAGNANT_STOCK'
 
                         let rowBgClass = 'hover:bg-slate-50/70'
                         if (item.isPlanned) {
@@ -919,6 +1115,8 @@ export default function Checklist({
                            rowBgClass = 'bg-orange-50/50 hover:bg-orange-50/80 border-l-4 border-l-orange-500'
                         } else if (isUnfinished) {
                            rowBgClass = 'bg-rose-50/40 hover:bg-rose-50/70 border-l-4 border-l-rose-400'
+                        } else if (isStagnant) {
+                           rowBgClass = 'bg-rose-50/30 hover:bg-rose-50/60 border-l-4 border-l-rose-500'
                         } else if (isLongTime) {
                            const lt = getLongTimeStyles(item.smartMeta?.consecutiveWeeks)
                            rowBgClass = lt.row
@@ -988,9 +1186,33 @@ export default function Checklist({
                                        {item.productName}
                                     </span>
 
-                                    {/* 🔥 Бейдж Хит / Разлетелось (строго 1 иконка огня + чистый текст) */}
-                                    {isHit && (
-                                       <span
+                                    {/* Маркеры спроса: Хит или Категория A / B / C */}
+                                    {item.abcManualDisabled ? (
+                                       <button
+                                          type='button'
+                                          onClick={(e) => {
+                                             e.stopPropagation()
+                                             if (canTogglePlan) handleToggleAbc(item)
+                                          }}
+                                          disabled={!canTogglePlan || isTogglingAbcId === item.id}
+                                          title={canTogglePlan ? 'Маркер был снят вручную. Нажмите, чтобы вернуть маркер' : 'Маркер снят'}
+                                          className='inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold text-slate-400 bg-slate-100 hover:bg-slate-200 border border-slate-300 transition cursor-pointer'
+                                       >
+                                          <span className='line-through'>
+                                             {item.rawIsHit ? '🔥 Хит' : item.rawAbcCategory ? `Кат. ${item.rawAbcCategory}` : 'Маркер'}
+                                          </span>
+                                          {canTogglePlan && (
+                                             <span className='text-[9px] text-slate-500 hover:text-slate-700 font-bold'>↺ вернуть</span>
+                                          )}
+                                       </button>
+                                    ) : isHit ? (
+                                       <button
+                                          type='button'
+                                          onClick={(e) => {
+                                             e.stopPropagation()
+                                             setHoveredTooltip(null)
+                                             if (canTogglePlan) handleToggleAbc(item)
+                                          }}
                                           onMouseEnter={(e) => {
                                              e.stopPropagation()
                                              setHoveredTooltip({
@@ -999,7 +1221,13 @@ export default function Checklist({
                                              })
                                           }}
                                           onMouseLeave={() => setHoveredTooltip(null)}
-                                          className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wide whitespace-nowrap shrink-0 shadow-2xs cursor-help select-none ${
+                                          disabled={!canTogglePlan || isTogglingAbcId === item.id}
+                                          title={canTogglePlan ? 'Нажмите на значок, чтобы снять маркер Хита' : 'Хит спроса'}
+                                          className={`group/badge inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wide whitespace-nowrap shrink-0 shadow-2xs transition-all select-none ${
+                                             canTogglePlan
+                                                ? 'cursor-pointer hover:ring-2 hover:ring-red-400 hover:opacity-95'
+                                                : 'cursor-default'
+                                          } ${
                                              item.isPlanned
                                                 ? 'bg-gradient-to-r from-orange-500 to-amber-500 text-white'
                                                 : 'bg-gradient-to-r from-orange-600 via-amber-600 to-red-600 text-white ring-1 ring-orange-400/50 animate-pulse'
@@ -1009,8 +1237,142 @@ export default function Checklist({
                                           <span>
                                              {(item.smartMeta?.badgeText || 'Разлетелось').replace(/^🔥\s*/, '')}
                                           </span>
-                                       </span>
-                                    )}
+                                          {canTogglePlan && (
+                                             <span
+                                                className='ml-0.5 text-white/70 group-hover/badge:text-white group-hover/badge:bg-red-600/90 rounded-full w-3.5 h-3.5 inline-flex items-center justify-center font-bold text-[9px] transition-all'
+                                                title='Снять маркер'
+                                             >
+                                                ✕
+                                             </span>
+                                          )}
+                                       </button>
+                                    ) : item.abcCategory === 'A' ? (
+                                       <button
+                                          type='button'
+                                          onClick={(e) => {
+                                             e.stopPropagation()
+                                             setHoveredTooltip(null)
+                                             if (canTogglePlan) handleToggleAbc(item)
+                                          }}
+                                          onMouseEnter={(e) => {
+                                             e.stopPropagation()
+                                             const weeksText = item.salesHistoryWeeks ? `${item.salesHistoryWeeks} нед.` : '5 нед.'
+                                             setHoveredTooltip({
+                                                item,
+                                                rect: e.currentTarget.getBoundingClientRect(),
+                                                customContent: {
+                                                   icon: '⚡',
+                                                   title: 'Категория А: Высокий спрос',
+                                                   titleColor: 'text-emerald-400 font-black',
+                                                   subtitle: `В среднем ${item.salesPercent || 0}% продаж за последние ${weeksText}`,
+                                                   description: `Товар стабильно входит в число лидеров продаж фабрики (в среднем ${item.salesPercent || 0}% расхода в неделю). Оптовые покупатели заказывают эту позицию регулярно и в больших объемах.`,
+                                                   recommendation: 'Обязательно запланируйте выпуск в цехе! Высокий приоритет для оптовиков.',
+                                                   footerHint: canTogglePlan ? 'Нажмите на значок, чтобы снять маркер' : undefined,
+                                                },
+                                             })
+                                          }}
+                                          onMouseLeave={() => setHoveredTooltip(null)}
+                                          disabled={!canTogglePlan || isTogglingAbcId === item.id}
+                                          className={`group/badge inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wide bg-emerald-100 text-emerald-800 border border-emerald-300 shadow-2xs whitespace-nowrap select-none transition-all ${
+                                             canTogglePlan ? 'cursor-pointer hover:ring-2 hover:ring-red-400 hover:bg-emerald-200' : 'cursor-default'
+                                          }`}
+                                       >
+                                          <span>⚡</span>
+                                          <span>A {item.salesPercent ? `${item.salesPercent}%` : ''}</span>
+                                          {canTogglePlan && (
+                                             <span
+                                                className='ml-0.5 text-emerald-700/60 group-hover/badge:text-white group-hover/badge:bg-red-500 rounded-full w-3.5 h-3.5 inline-flex items-center justify-center font-bold text-[9px] transition-all'
+                                                title='Снять маркер'
+                                             >
+                                                ✕
+                                             </span>
+                                          )}
+                                       </button>
+                                    ) : item.abcCategory === 'B' ? (
+                                       <button
+                                          type='button'
+                                          onClick={(e) => {
+                                             e.stopPropagation()
+                                             setHoveredTooltip(null)
+                                             if (canTogglePlan) handleToggleAbc(item)
+                                          }}
+                                          onMouseEnter={(e) => {
+                                             e.stopPropagation()
+                                             const weeksText = item.salesHistoryWeeks ? `${item.salesHistoryWeeks} нед.` : '5 нед.'
+                                             setHoveredTooltip({
+                                                item,
+                                                rect: e.currentTarget.getBoundingClientRect(),
+                                                customContent: {
+                                                   icon: '👍',
+                                                   title: 'Категория B: Базовый стабильный спрос',
+                                                   titleColor: 'text-blue-400 font-black',
+                                                   subtitle: `В среднем ${item.salesPercent || 0}% продаж за последние ${weeksText}`,
+                                                   description: `Товар показывает устойчивые регулярные продажи (в среднем ${item.salesPercent || 0}% расхода в неделю). Является надежной базовой продукцией оптового ассортимента («паровоз» фабрики).`,
+                                                   recommendation: 'Рекомендуется регулярно держать в плане цеха для поддержания запаса.',
+                                                   footerHint: canTogglePlan ? 'Нажмите на значок, чтобы снять маркер' : undefined,
+                                                },
+                                             })
+                                          }}
+                                          onMouseLeave={() => setHoveredTooltip(null)}
+                                          disabled={!canTogglePlan || isTogglingAbcId === item.id}
+                                          className={`group/badge inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide bg-blue-100 text-blue-800 border border-blue-200 shadow-2xs whitespace-nowrap select-none transition-all ${
+                                             canTogglePlan ? 'cursor-pointer hover:ring-2 hover:ring-red-400 hover:bg-blue-200' : 'cursor-default'
+                                          }`}
+                                       >
+                                          <span>👍</span>
+                                          <span>B {item.salesPercent ? `${item.salesPercent}%` : ''}</span>
+                                          {canTogglePlan && (
+                                             <span
+                                                className='ml-0.5 text-blue-700/60 group-hover/badge:text-white group-hover/badge:bg-red-500 rounded-full w-3.5 h-3.5 inline-flex items-center justify-center font-bold text-[9px] transition-all'
+                                                title='Снять маркер'
+                                             >
+                                                ✕
+                                             </span>
+                                          )}
+                                       </button>
+                                    ) : item.abcCategory === 'C' ? (
+                                       <button
+                                          type='button'
+                                          onClick={(e) => {
+                                             e.stopPropagation()
+                                             setHoveredTooltip(null)
+                                             if (canTogglePlan) handleToggleAbc(item)
+                                          }}
+                                          onMouseEnter={(e) => {
+                                             e.stopPropagation()
+                                             const weeksText = item.salesHistoryWeeks ? `${item.salesHistoryWeeks} нед.` : '5 нед.'
+                                             setHoveredTooltip({
+                                                item,
+                                                rect: e.currentTarget.getBoundingClientRect(),
+                                                customContent: {
+                                                   icon: '📦',
+                                                   title: 'Категория C: Умеренный/медленный спрос',
+                                                   titleColor: 'text-slate-300 font-black',
+                                                   subtitle: `В среднем ${item.salesPercent || 0}% продаж за последние ${weeksText}`,
+                                                   description: `Позиция продается со средней скоростью ${item.salesPercent || 0}% в неделю. Спрос умеренный или нишевый.`,
+                                                   recommendation: 'Производите аккуратно и небольшими партиями под конкретные заявки покупателей.',
+                                                   footerHint: canTogglePlan ? 'Нажмите на значок, чтобы снять маркер' : undefined,
+                                                },
+                                             })
+                                          }}
+                                          onMouseLeave={() => setHoveredTooltip(null)}
+                                          disabled={!canTogglePlan || isTogglingAbcId === item.id}
+                                          className={`group/badge inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-medium uppercase tracking-wide bg-slate-100 text-slate-700 border border-slate-200 shadow-2xs whitespace-nowrap select-none transition-all ${
+                                             canTogglePlan ? 'cursor-pointer hover:ring-2 hover:ring-red-400 hover:bg-slate-200' : 'cursor-default'
+                                          }`}
+                                       >
+                                          <span>📦</span>
+                                          <span>C {item.salesPercent ? `${item.salesPercent}%` : ''}</span>
+                                          {canTogglePlan && (
+                                             <span
+                                                className='ml-0.5 text-slate-500/60 group-hover/badge:text-white group-hover/badge:bg-red-500 rounded-full w-3.5 h-3.5 inline-flex items-center justify-center font-bold text-[9px] transition-all'
+                                                title='Снять маркер'
+                                             >
+                                                ✕
+                                             </span>
+                                          )}
+                                       </button>
+                                    ) : null}
 
                                     {/* ⚠️ Бейдж Долг с прошлой недели */}
                                     {isUnfinished && (
@@ -1054,6 +1416,26 @@ export default function Checklist({
                                           </span>
                                        )
                                     })()}
+
+                                     {/* ❗ Бейдж Не продается / Застой остатка */}
+                                     {item.smartMeta?.tag === 'STAGNANT_STOCK' && (
+                                        <span
+                                           onMouseEnter={(e) => {
+                                              e.stopPropagation()
+                                              setHoveredTooltip({
+                                                 item,
+                                                 rect: e.currentTarget.getBoundingClientRect(),
+                                              })
+                                           }}
+                                           onMouseLeave={() => setHoveredTooltip(null)}
+                                           className='inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wide bg-rose-100 text-rose-950 border border-rose-300 shadow-2xs whitespace-nowrap shrink-0 cursor-help select-none hover:bg-rose-200 transition'
+                                        >
+                                           <span className='text-xs font-black text-rose-600 animate-pulse'>❗</span>
+                                           <span>
+                                              {(item.smartMeta?.badgeText || 'Не продается').replace(/^❗\s*/, '')}
+                                           </span>
+                                        </span>
+                                     )}
 
                                     {/* 📉 Бейдж Заканчивается */}
                                     {item.smartMeta?.tag === 'LOW_STOCK' && !item.isPlanned && (
@@ -1249,15 +1631,33 @@ export default function Checklist({
             </div>
          )}
 
-         {/* ═══ Всплывающий кастомный тултип для смарт-бейджей ═══ */}
-         {hoveredTooltip && hoveredTooltip.item.smartMeta && (() => {
+         {/* ═══ Всплывающий кастомный тултип для смарт-бейджей и категорий ═══ */}
+         {hoveredTooltip && (hoveredTooltip.customContent || hoveredTooltip.item.smartMeta) && (() => {
             const badgeCenterX = hoveredTooltip.rect.left + hoveredTooltip.rect.width / 2
-            const tooltipWidth = 320
+            const tooltipWidth = 360
             const halfW = tooltipWidth / 2
             const screenW = typeof window !== 'undefined' ? window.innerWidth : 1200
             const tooltipLeft = Math.max(halfW + 12, Math.min(screenW - halfW - 12, badgeCenterX))
             const arrowLeft = Math.max(16, Math.min(tooltipWidth - 16, badgeCenterX - (tooltipLeft - halfW)))
-            const isTopClipped = hoveredTooltip.rect.top < 160
+            const isTopClipped = hoveredTooltip.rect.top < 180
+
+            const content = hoveredTooltip.customContent || {
+               icon: hoveredTooltip.item.smartMeta?.icon || (hoveredTooltip.item.smartMeta?.tag === 'HIT_REPEAT' ? '🔥' : 'ℹ️'),
+               title: hoveredTooltip.item.smartMeta?.title || hoveredTooltip.item.smartMeta?.badgeText || '',
+               titleColor: hoveredTooltip.item.smartMeta?.tag === 'HIT_REPEAT'
+                  ? 'text-orange-400 font-black'
+                  : hoveredTooltip.item.smartMeta?.tag === 'LAST_WEEK_UNFINISHED'
+                  ? 'text-rose-400 font-black'
+                  : hoveredTooltip.item.smartMeta?.tag === 'STAGNANT_STOCK'
+                  ? 'text-red-400 font-black'
+                  : hoveredTooltip.item.smartMeta?.tag === 'LONG_TIME_NO_PLAN'
+                  ? getLongTimeStyles(hoveredTooltip.item.smartMeta?.consecutiveWeeks).tooltipTitle
+                  : 'text-amber-400 font-black',
+               subtitle: hoveredTooltip.item.smartMeta?.subtitle,
+               description: hoveredTooltip.item.smartMeta?.tooltipText || '',
+               recommendation: hoveredTooltip.item.smartMeta?.recommendation,
+               footerHint: undefined,
+            }
 
             return (
                <div
@@ -1267,46 +1667,33 @@ export default function Checklist({
                         : hoveredTooltip.rect.top - 8,
                      left: tooltipLeft,
                      transform: isTopClipped ? 'translate(-50%, 0)' : 'translate(-50%, -100%)',
+                     width: `${tooltipWidth}px`,
                   }}
-                  className='fixed z-[99999] pointer-events-none w-80 max-w-[calc(100vw-24px)] bg-slate-900/95 backdrop-blur-md text-white p-3.5 rounded-2xl shadow-2xl border border-slate-700/70 animate-in fade-in zoom-in-95 duration-150'
+                  className='fixed z-[99999] pointer-events-none max-w-[calc(100vw-24px)] bg-slate-900/95 backdrop-blur-md text-white p-4 rounded-2xl shadow-2xl border border-slate-700/80 animate-in fade-in zoom-in-95 duration-150 select-none'
                >
                   {/* Заголовок тултипа */}
-                  <div className='flex items-start justify-between gap-2 border-b border-slate-700/60 pb-2 mb-2'>
-                     <div className='flex items-center gap-2'>
-                        <span className='text-lg leading-none shrink-0'>
-                           {hoveredTooltip.item.smartMeta.icon ||
-                              (hoveredTooltip.item.smartMeta.tag === 'HIT_REPEAT'
-                                 ? '🔥'
-                                 : 'ℹ️')}
+                  <div className='flex items-start justify-between gap-2.5 border-b border-slate-700/70 pb-2.5 mb-2.5'>
+                     <div className='flex items-center gap-2.5 min-w-0'>
+                        <span className='text-2xl leading-none shrink-0'>
+                           {content.icon}
                         </span>
-                        <div>
+                        <div className='min-w-0'>
                            <h4
-                              className={`text-xs font-black leading-tight ${
-                                 hoveredTooltip.item.smartMeta.tag === 'HIT_REPEAT'
-                                    ? 'text-orange-400'
-                                    : hoveredTooltip.item.smartMeta.tag ===
-                                      'LAST_WEEK_UNFINISHED'
-                                    ? 'text-rose-400'
-                                    : hoveredTooltip.item.smartMeta.tag ===
-                                      'LONG_TIME_NO_PLAN'
-                                    ? getLongTimeStyles(
-                                          hoveredTooltip.item.smartMeta.consecutiveWeeks
-                                       ).tooltipTitle
-                                    : 'text-amber-400'
+                              className={`text-sm font-black leading-snug tracking-tight ${
+                                 content.titleColor || 'text-white'
                               }`}
                            >
-                              {hoveredTooltip.item.smartMeta.title ||
-                                 hoveredTooltip.item.smartMeta.badgeText}
+                              {content.title}
                            </h4>
-                           {hoveredTooltip.item.smartMeta.subtitle && (
-                              <p className='text-[10px] text-slate-400 mt-0.5 font-medium'>
-                                 {hoveredTooltip.item.smartMeta.subtitle}
+                           {content.subtitle && (
+                              <p className='text-xs text-slate-300 mt-0.5 font-medium leading-tight'>
+                                 {content.subtitle}
                               </p>
                            )}
                         </div>
                      </div>
                      <span
-                        className={`px-2 py-0.5 rounded-md text-[9px] font-extrabold uppercase shrink-0 ${
+                        className={`px-2.5 py-0.5 rounded-md text-[11px] font-extrabold uppercase shrink-0 ${
                            hoveredTooltip.item.isPlanned
                               ? 'bg-teal-500/20 text-teal-300 border border-teal-500/30'
                               : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
@@ -1317,17 +1704,25 @@ export default function Checklist({
                   </div>
 
                   {/* Описание */}
-                  <p className='text-[11px] text-slate-200 leading-relaxed font-normal'>
-                     {hoveredTooltip.item.smartMeta.tooltipText}
+                  <p className='text-[13px] text-slate-100 leading-relaxed font-normal'>
+                     {content.description}
                   </p>
 
                   {/* Рекомендация */}
-                  {hoveredTooltip.item.smartMeta.recommendation && (
-                     <div className='mt-2.5 pt-2 border-t border-slate-800/80 flex items-start gap-1.5 text-[10px] font-semibold text-teal-300'>
-                        <span className='shrink-0'>💡</span>
-                        <span className='leading-tight'>
-                           {hoveredTooltip.item.smartMeta.recommendation}
+                  {content.recommendation && (
+                     <div className='mt-3 pt-2.5 border-t border-slate-800 flex items-start gap-2 text-xs font-semibold text-emerald-300'>
+                        <span className='shrink-0 text-sm'>💡</span>
+                        <span className='leading-snug'>
+                           {content.recommendation}
                         </span>
+                     </div>
+                  )}
+
+                  {/* Подсказка о клике / снятии маркера */}
+                  {content.footerHint && (
+                     <div className='mt-2.5 pt-2 border-t border-slate-800/60 flex items-center gap-1.5 text-[11px] font-medium text-slate-400'>
+                        <span>🖱️</span>
+                        <span>{content.footerHint}</span>
                      </div>
                   )}
 
@@ -1343,6 +1738,25 @@ export default function Checklist({
                </div>
             )
          })()}
+
+         {/* Модальное окно подтверждения массовых действий и утверждения плана */}
+         {bulkModalConfig && (
+            <BulkPlanModal
+               isOpen={bulkModalConfig.isOpen}
+               actionType={bulkModalConfig.actionType}
+               title={bulkModalConfig.title}
+               description={bulkModalConfig.description}
+               items={bulkModalConfig.items}
+               plannedCount={plannedCount}
+               isLoading={isBulkLoading || isConfirmingPlan}
+               onClose={() => {
+                  if (!isBulkLoading && !isConfirmingPlan) {
+                     setBulkModalConfig(null)
+                  }
+               }}
+               onConfirm={handleConfirmBulkAction}
+            />
+         )}
       </div>
    )
 }
