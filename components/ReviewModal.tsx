@@ -19,6 +19,7 @@ interface PlannedItem {
   category?: string | null;
   stockKg?: number;
   isNew?: boolean;
+  newExpiresAt?: string | null;
 }
 
 interface ReviewModalProps {
@@ -163,7 +164,14 @@ export default function ReviewModal({
                       )}
                     </div>
                     {item.isNew && (
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 text-purple-800 border border-purple-200">
+                      <span
+                        title={
+                          item.newExpiresAt
+                            ? `Новинка активна до ${new Date(item.newExpiresAt).toLocaleDateString('ru-RU')}`
+                            : 'Новинка (активна 2 месяца)'
+                        }
+                        className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 text-purple-800 border border-purple-200"
+                      >
                         НОВИНКА
                       </span>
                     )}

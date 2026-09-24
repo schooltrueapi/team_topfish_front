@@ -26,6 +26,7 @@ interface SnapshotItem {
    price?: number | null
    stockKg?: number | null
    isNew?: boolean
+   newExpiresAt?: string | null
 }
 
 interface RemovedItem extends SnapshotItem {
@@ -185,6 +186,7 @@ export default function PlanSnapshotPanel({
                price: i.price,
                stockKg: i.stockKg,
                isNew: i.isNew,
+               newExpiresAt: i.newExpiresAt,
                addedAfterApproval: true,
                lastUpdatedBy: i.lastUpdatedBy || serverAdded?.lastUpdatedBy || null,
                updatedAt: i.updatedAt || serverAdded?.updatedAt || null,
@@ -498,7 +500,14 @@ export default function PlanSnapshotPanel({
                                        </span>
                                     )}
                                     {item.isNew && (
-                                       <span className='px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 text-[10px] font-bold'>
+                                       <span
+                                          title={
+                                             item.newExpiresAt
+                                                ? `Новинка активна до ${new Date(item.newExpiresAt).toLocaleDateString('ru-RU')}`
+                                                : 'Новинка (активна 2 месяца)'
+                                          }
+                                          className='px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 text-[10px] font-bold'
+                                       >
                                           НОВ
                                        </span>
                                     )}

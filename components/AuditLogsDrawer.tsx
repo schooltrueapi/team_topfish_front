@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import api from '@/lib/api';
-import { X, History, RefreshCw, User, CheckSquare, Upload, Calendar, Shield } from 'lucide-react';
+import { X, History, RefreshCw, User, CheckSquare, Upload, Calendar, Shield, ClipboardCheck } from 'lucide-react';
 
 interface AuditLog {
   id: string;
@@ -66,6 +66,9 @@ export default function AuditLogsDrawer({ isOpen, onClose }: AuditLogsDrawerProp
       case 'CHECKBOX_TOGGLED':
       case 'BULK_CHECKBOX':
         return <CheckSquare className="w-3.5 h-3.5 text-teal-600" />;
+      case 'ARCHIVE_RESULT_UPDATED':
+      case 'RESULT_SAVED':
+        return <ClipboardCheck className="w-3.5 h-3.5 text-amber-600" />;
       case 'FILE_UPLOADED':
         return <Upload className="w-3.5 h-3.5 text-blue-600" />;
       case 'WEEK_CLOSED':

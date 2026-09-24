@@ -25,6 +25,7 @@ import {
    ArrowUp,
    ArrowDown,
    X,
+   Pencil,
 } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import BulkPlanModal, { BulkActionType } from './BulkPlanModal'
@@ -40,6 +41,7 @@ export interface PlanItem {
    price?: number | null
    stockKg?: number | null
    isNew: boolean
+   newExpiresAt?: string | null
    isPlanned: boolean
    lastUpdatedBy?: string | null
    createdAt?: string
@@ -184,12 +186,20 @@ export default function Checklist({
 }: ChecklistProps) {
    const { hasPermission } = useAuth()
    const isClosed = weekStatus === 'CLOSED' || isArchive
+   const canEditArchive = isClosed && (hasPermission('TOGGLE_PLAN') || hasPermission('FULL_ACCESS'))
    const canTogglePlan = hasPermission('TOGGLE_PLAN') && !isClosed
    const canUpload1C = hasPermission('UPLOAD_1C') && !isClosed
 
    const [search, setSearch] = useState('')
    const [selectedCategory, setSelectedCategory] = useState('ALL')
    const [isTogglingId, setIsTogglingId] = useState<string | null>(null)
+   const [isUpdatingResultId, setIsUpdatingResultId] = useState<string | null>(null)
+   const [editingCommentItem, setEditingCommentItem] = useState<{
+      id: string
+      productName: string
+      comment: string
+   } | null>(null)
+   const [reasonInput, setReasonInput] = useState('')
    const [isTogglingNewId, setIsTogglingNewId] = useState<string | null>(null)
    const [isTogglingAbcId, setIsTogglingAbcId] = useState<string | null>(null)
    const [isDeletingId, setIsDeletingId] = useState<string | null>(null)
@@ -216,6 +226,8 @@ export default function Checklist({
          description: string
          recommendation?: string
          footerHint?: string
+         headerBadge?: string
+         headerBadgeClass?: string
       }
    } | null>(null)
    const [longTimeDurationFilter, setLongTimeDurationFilter] = useState<
@@ -478,9 +490,58 @@ export default function Checklist({
       }
    }
 
+   const handleUpdateResult = async (
+      item: PlanItem,
+      resultStatus: string,
+      reasonComment?: string | null
+   ) => {
+      if (!canEditArchive && !hasPermission('TOGGLE_PLAN')) {
+         toast.error('У вашей роли нет прав для изменения чеклиста')
+         return
+      }
+      try {
+         setIsUpdatingResultId(item.id)
+         const res = await api.put(`/api/plan/item/${item.id}/result`, {
+            resultStatus,
+            reasonComment,
+         })
+         onItemUpdated({
+            ...item,
+            ...res.data,
+            abcCategory: item.abcCategory,
+            rawAbcCategory: item.rawAbcCategory,
+            isHit: item.isHit,
+            rawIsHit: item.rawIsHit,
+            salesPercent: item.salesPercent,
+            salesHistoryWeeks: item.salesHistoryWeeks,
+            smartMeta: item.smartMeta,
+            abcManualDisabled: item.abcManualDisabled,
+         })
+
+         const statusTitles: Record<string, string> = {
+            COMPLETED: 'Готово',
+            FORGOTTEN: 'Забыли',
+            NO_RAW_MATERIAL: 'Нет сырья',
+            OTHER: 'Другое',
+         }
+         const label = statusTitles[resultStatus] || resultStatus
+         toast.success(`Статус чеклиста обновлен: ${label}`)
+      } catch (err: any) {
+         toast.error(
+            err.response?.data?.error || 'Ошибка обновления статуса чеклиста'
+         )
+      } finally {
+         setIsUpdatingResultId(null)
+      }
+   }
+
    const handleToggle = async (item: PlanItem) => {
       if (!canTogglePlan) {
-         toast.error('У вашей роли нет прав для отметки в плане')
+         toast.error(
+            isClosed
+               ? 'Архив доступен только для чтения'
+               : 'У вашей роли нет прав для отметки в плане'
+         )
          return
       }
       try {
@@ -498,6 +559,13 @@ export default function Checklist({
             smartMeta: item.smartMeta,
             abcManualDisabled: item.abcManualDisabled,
          })
+         if (isClosed) {
+            toast.success(
+               res.data.isPlanned
+                  ? `Позиция "${item.productName}" добавлена в архивный чеклист`
+                  : `Позиция "${item.productName}" исключена из архивного чеклиста`
+            )
+         }
       } catch (err: any) {
          toast.error(err.response?.data?.error || 'Ошибка изменения статуса')
       } finally {
@@ -527,7 +595,7 @@ export default function Checklist({
          })
          toast.success(
             res.data.isNew
-               ? `"${item.productName}" отмечен как новинка`
+               ? `"${item.productName}" отмечен как новинка (на 2 месяца)`
                : `Снят статус новинки с "${item.productName}"`
          )
       } catch (err: any) {
@@ -821,9 +889,20 @@ export default function Checklist({
             {/* ═══ Строка 2: Кнопки действий ═══ */}
             {isClosed ? (
                <div className='flex items-center gap-2 pt-1'>
-                  <div className='inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs font-bold'>
+                  <div
+                     className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl border text-xs font-bold ${
+                        canEditArchive
+                           ? 'bg-teal-50 border-teal-200 text-teal-900 shadow-2xs'
+                           : 'bg-amber-50 border-amber-200 text-amber-900'
+                     }`}
+                  >
+                     {canEditArchive && (
+                        <span className='w-2 h-2 rounded-full bg-teal-500 animate-pulse'></span>
+                     )}
                      <span>
-                        📁 Неделя зафиксирована в архиве (режим просмотра)
+                        {canEditArchive
+                           ? '📁 Архив недели • Доступно редактирование чеклиста (все изменения фиксируются в журнале аудита)'
+                           : '📁 Неделя зафиксирована в архиве (режим просмотра)'}
                      </span>
                   </div>
                </div>
@@ -1327,7 +1406,7 @@ export default function Checklist({
                            Категория
                         </th>
                         {isClosed && (
-                           <th className='px-2 py-3 text-left whitespace-nowrap w-[160px]'>
+                           <th className='px-2 py-3 text-left whitespace-nowrap w-[195px]'>
                               Итог недели
                            </th>
                         )}
@@ -1461,10 +1540,14 @@ export default function Checklist({
                                        isTogglingId === item.id
                                     }
                                     title={
-                                       isClosed
-                                          ? 'Архивная неделя закрыта для изменений'
-                                          : !canTogglePlan
-                                            ? 'У вашей роли нет прав для отметки в плане'
+                                       !canTogglePlan
+                                          ? isClosed
+                                             ? 'Архив доступен только для чтения'
+                                             : 'У вашей роли нет прав для отметки в плане'
+                                          : isClosed
+                                            ? item.isPlanned
+                                               ? 'Нажмите, чтобы исключить позицию из чеклиста архива'
+                                               : 'Нажмите, чтобы включить позицию в чеклист архива'
                                             : ''
                                     }
                                     className={`w-6 h-6 rounded-lg flex items-center justify-center transition ${
@@ -1945,7 +2028,14 @@ export default function Checklist({
 
                                     {item.isNew ? (
                                        isClosed ? (
-                                          <span className='inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-purple-100 text-purple-800 border border-purple-300 whitespace-nowrap shrink-0'>
+                                          <span
+                                             title={
+                                                item.newExpiresAt
+                                                   ? `Новинка активна до ${new Date(item.newExpiresAt).toLocaleDateString('ru-RU')}`
+                                                   : 'Новинка (активна 2 месяца)'
+                                             }
+                                             className='inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-purple-100 text-purple-800 border border-purple-300 whitespace-nowrap shrink-0'
+                                          >
                                              <Sparkles className='w-3 h-3 text-purple-600' />
                                              НОВИНКА
                                           </span>
@@ -1959,7 +2049,11 @@ export default function Checklist({
                                              disabled={
                                                 isTogglingNewId === item.id
                                              }
-                                             title='Нажмите, чтобы снять статус новинки'
+                                             title={
+                                                item.newExpiresAt
+                                                   ? `Новинка активна до ${new Date(item.newExpiresAt).toLocaleDateString('ru-RU')} (нажмите, чтобы снять досрочно)`
+                                                   : 'Нажмите, чтобы снять статус новинки'
+                                             }
                                              className='inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-purple-100 hover:bg-purple-200 text-purple-800 border border-purple-300 transition shadow-sm cursor-pointer whitespace-nowrap shrink-0'
                                           >
                                              <Sparkles className='w-3 h-3 text-purple-600' />
@@ -1974,7 +2068,7 @@ export default function Checklist({
                                              handleToggleNew(item)
                                           }}
                                           disabled={isTogglingNewId === item.id}
-                                          title='Нажмите, чтобы отметить как новинку'
+                                          title='Нажмите, чтобы отметить как новинку (будет активна 2 месяца)'
                                           className='hidden group-hover:inline-flex items-center gap-1 text-[10px] font-medium text-slate-400 hover:text-purple-700 hover:bg-purple-50 px-1.5 py-0.5 rounded border border-dashed border-slate-300 hover:border-purple-300 transition cursor-pointer whitespace-nowrap shrink-0'
                                        >
                                           + Новинка
@@ -1990,8 +2084,147 @@ export default function Checklist({
 
                               {/* Итог недели (Заключение понедельничного учета) */}
                               {isClosed && (
-                                 <td className='px-2 py-3 text-left whitespace-nowrap'>
-                                    {item.isPlanned ? (
+                                 <td
+                                    className='px-2 py-3 text-left whitespace-nowrap'
+                                    onClick={(e) => e.stopPropagation()}
+                                 >
+                                    {!item.isPlanned ? (
+                                       <span className='text-slate-300 text-[11px] italic'>
+                                          Не в плане
+                                       </span>
+                                    ) : canEditArchive ? (
+                                       <div className='flex items-center gap-1.5'>
+                                          {isUpdatingResultId === item.id ? (
+                                             <span className='inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-slate-100 text-slate-500 border border-slate-200'>
+                                                <RefreshCw className='w-3 h-3 animate-spin' />
+                                                <span>Сохранение...</span>
+                                             </span>
+                                          ) : (
+                                             <div
+                                                className='relative inline-block'
+                                                onMouseEnter={(e) => {
+                                                   if (item.resultStatus === 'OTHER') {
+                                                      e.stopPropagation()
+                                                      setHoveredTooltip({
+                                                         item,
+                                                         rect: e.currentTarget.getBoundingClientRect(),
+                                                         customContent: {
+                                                            icon: '💬',
+                                                            title: 'Причина невыполнения',
+                                                            titleColor: 'text-blue-300 font-black',
+                                                            subtitle: item.productName,
+                                                            description:
+                                                               item.reasonComment ||
+                                                               'Причина пока не указана. Нажмите на значок карандаша рядом, чтобы добавить причину.',
+                                                            recommendation:
+                                                               'Нажмите на кнопку с карандашом ✏️ для изменения текста причины.',
+                                                            footerHint:
+                                                               'Клик по карандашу для редактирования',
+                                                            headerBadge: 'Другое',
+                                                            headerBadgeClass:
+                                                               'bg-blue-500/20 text-blue-300 border border-blue-500/30',
+                                                         },
+                                                      })
+                                                   }
+                                                }}
+                                                onMouseLeave={() => {
+                                                   if (item.resultStatus === 'OTHER') {
+                                                      setHoveredTooltip(null)
+                                                   }
+                                                }}
+                                             >
+                                                <select
+                                                   value={item.resultStatus || 'COMPLETED'}
+                                                   onChange={(e) => {
+                                                      const val = e.target.value
+                                                      if (val === 'OTHER') {
+                                                         setEditingCommentItem({
+                                                            id: item.id,
+                                                            productName: item.productName,
+                                                            comment: item.reasonComment || '',
+                                                         })
+                                                         setReasonInput(item.reasonComment || '')
+                                                      } else {
+                                                         handleUpdateResult(item, val, null)
+                                                      }
+                                                   }}
+                                                   title='Нажмите, чтобы изменить статус чеклиста позиции'
+                                                   className={`text-[11px] font-bold rounded-lg px-2 py-1 pr-6 border cursor-pointer appearance-none transition focus:outline-none focus:ring-2 focus:ring-teal-500 shadow-2xs ${
+                                                      item.resultStatus === 'COMPLETED'
+                                                         ? 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100/80 font-black'
+                                                         : item.resultStatus === 'FORGOTTEN'
+                                                           ? 'bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100/80 font-black'
+                                                           : item.resultStatus === 'NO_RAW_MATERIAL'
+                                                             ? 'bg-red-50 text-red-800 border-red-300 hover:bg-red-100/80 font-black'
+                                                             : item.resultStatus === 'OTHER'
+                                                               ? 'bg-blue-50 text-blue-800 border-blue-300 hover:bg-blue-100/80 font-black'
+                                                               : 'bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200/80'
+                                                   }`}
+                                                >
+                                                   <option value='COMPLETED'>✅ Готово</option>
+                                                   <option value='FORGOTTEN'>⚠️ Забыли</option>
+                                                   <option value='NO_RAW_MATERIAL'>❌ Нет сырья</option>
+                                                   <option value='OTHER'>💬 Другое</option>
+                                                </select>
+                                                <div className='pointer-events-none absolute inset-y-0 right-0 flex items-center px-1 text-slate-400'>
+                                                   <svg className='w-3 h-3' fill='none' stroke='currentColor' viewBox='0 0 24 24'>
+                                                      <path strokeLinecap='round' strokeLinejoin='round' strokeWidth='2' d='M19 9l-7 7-7-7' />
+                                                   </svg>
+                                                </div>
+                                             </div>
+                                          )}
+
+                                          {/* Если статус "Другое", отображаем кнопку причины с попапом при наведении */}
+                                          {item.isPlanned && item.resultStatus === 'OTHER' && (
+                                             <button
+                                                type='button'
+                                                onClick={(e) => {
+                                                   e.stopPropagation()
+                                                   setHoveredTooltip(null)
+                                                   setEditingCommentItem({
+                                                      id: item.id,
+                                                      productName: item.productName,
+                                                      comment: item.reasonComment || '',
+                                                   })
+                                                   setReasonInput(item.reasonComment || '')
+                                                }}
+                                                onMouseEnter={(e) => {
+                                                   e.stopPropagation()
+                                                   setHoveredTooltip({
+                                                      item,
+                                                      rect: e.currentTarget.getBoundingClientRect(),
+                                                      customContent: {
+                                                         icon: '💬',
+                                                         title: 'Причина невыполнения',
+                                                         titleColor: 'text-blue-300 font-black',
+                                                         subtitle: item.productName,
+                                                         description:
+                                                            item.reasonComment ||
+                                                            'Причина пока не указана. Нажмите, чтобы отредактировать.',
+                                                         recommendation:
+                                                            'Нажмите на кнопку с карандашом для ввода или изменения причины.',
+                                                         footerHint:
+                                                            'Клик — редактировать причину',
+                                                         headerBadge: 'Другое',
+                                                         headerBadgeClass:
+                                                            'bg-blue-500/20 text-blue-300 border border-blue-500/30',
+                                                      },
+                                                   })
+                                                }}
+                                                onMouseLeave={() => setHoveredTooltip(null)}
+                                                className={`inline-flex items-center gap-1 px-1.5 py-1 rounded-lg text-[10px] font-bold border transition cursor-pointer shrink-0 shadow-2xs ${
+                                                   item.reasonComment
+                                                      ? 'bg-blue-100 text-blue-800 border-blue-300 hover:bg-blue-200'
+                                                      : 'bg-amber-100 text-amber-900 border-amber-300 hover:bg-amber-200 animate-pulse'
+                                                }`}
+                                                title='Нажмите, чтобы отредактировать причину'
+                                             >
+                                                <Pencil className='w-3 h-3 text-blue-700 shrink-0' />
+                                                <span>{item.reasonComment ? 'Причина' : 'Указать'}</span>
+                                             </button>
+                                          )}
+                                       </div>
+                                    ) : (
                                        item.resultStatus === 'COMPLETED' ? (
                                           <span className='inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300'>
                                              <CheckCircle2 className='w-3.5 h-3.5 text-emerald-600 shrink-0' />
@@ -2009,29 +2242,42 @@ export default function Checklist({
                                              <span>Нет сырья</span>
                                           </span>
                                        ) : item.resultStatus === 'OTHER' ? (
-                                          <div className='flex flex-col gap-0.5 max-w-[150px]'>
-                                             <span className='inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-blue-100 text-blue-800 border border-blue-300 w-fit'>
-                                                <HelpCircle className='w-3.5 h-3.5 text-blue-600 shrink-0' />
-                                                <span>Другое</span>
-                                             </span>
+                                          <span
+                                             onMouseEnter={(e) => {
+                                                e.stopPropagation()
+                                                setHoveredTooltip({
+                                                   item,
+                                                   rect: e.currentTarget.getBoundingClientRect(),
+                                                   customContent: {
+                                                      icon: '💬',
+                                                      title: 'Причина невыполнения',
+                                                      titleColor: 'text-blue-300 font-black',
+                                                      subtitle: item.productName,
+                                                      description:
+                                                         item.reasonComment ||
+                                                         'Причина не была указана',
+                                                      headerBadge: 'Другое',
+                                                      headerBadgeClass:
+                                                         'bg-blue-500/20 text-blue-300 border border-blue-500/30',
+                                                   },
+                                                })
+                                             }}
+                                             onMouseLeave={() => setHoveredTooltip(null)}
+                                             className='inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-blue-100 text-blue-800 border border-blue-300 cursor-help select-none hover:bg-blue-200 transition shadow-2xs'
+                                          >
+                                             <HelpCircle className='w-3.5 h-3.5 text-blue-600 shrink-0' />
+                                             <span>Другое</span>
                                              {item.reasonComment && (
-                                                <span
-                                                   className='text-[10px] text-blue-900 font-medium italic truncate'
-                                                   title={item.reasonComment}
-                                                >
-                                                   {item.reasonComment}
+                                                <span className='ml-0.5 text-[9px] text-blue-700 bg-blue-200/80 px-1 py-0.2 rounded font-semibold'>
+                                                   инфо 💬
                                                 </span>
                                              )}
-                                          </div>
+                                          </span>
                                        ) : (
                                           <span className='inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-slate-100 text-slate-600'>
                                              В плане
                                           </span>
                                        )
-                                    ) : (
-                                       <span className='text-slate-300 text-[11px] italic'>
-                                          Не в плане
-                                       </span>
                                     )}
                                  </td>
                               )}
@@ -2203,14 +2449,17 @@ export default function Checklist({
                         </div>
                         <span
                            className={`px-2.5 py-0.5 rounded-md text-[11px] font-extrabold uppercase shrink-0 ${
-                              hoveredTooltip.item.isPlanned
-                                 ? 'bg-teal-500/20 text-teal-300 border border-teal-500/30'
-                                 : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                              content.headerBadgeClass
+                                 ? content.headerBadgeClass
+                                 : hoveredTooltip.item.isPlanned
+                                   ? 'bg-teal-500/20 text-teal-300 border border-teal-500/30'
+                                   : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
                            }`}
                         >
-                           {hoveredTooltip.item.isPlanned
-                              ? 'В плане'
-                              : 'Не в плане'}
+                           {content.headerBadge ||
+                              (hoveredTooltip.item.isPlanned
+                                 ? 'В плане'
+                                 : 'Не в плане')}
                         </span>
                      </div>
 
@@ -2267,6 +2516,95 @@ export default function Checklist({
                }}
                onConfirm={handleConfirmBulkAction}
             />
+         )}
+
+         {/* Модальное окно указания причины для статуса «Другое» */}
+         {editingCommentItem && (
+            <div
+               className='fixed inset-0 z-50 overflow-y-auto bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-150'
+               onClick={() => setEditingCommentItem(null)}
+            >
+               <div
+                  className='bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-150'
+                  onClick={(e) => e.stopPropagation()}
+               >
+                  <div className='p-4 bg-gradient-to-r from-blue-600 to-indigo-600 text-white flex items-center justify-between'>
+                     <div className='flex items-center gap-2'>
+                        <HelpCircle className='w-5 h-5 text-blue-200' />
+                        <h3 className='font-extrabold text-sm sm:text-base'>
+                           Причина (статус «Другое»)
+                        </h3>
+                     </div>
+                     <button
+                        type='button'
+                        onClick={() => setEditingCommentItem(null)}
+                        className='w-7 h-7 rounded-lg flex items-center justify-center text-blue-200 hover:text-white hover:bg-white/10 transition cursor-pointer'
+                     >
+                        <X className='w-4 h-4' />
+                     </button>
+                  </div>
+
+                  <div className='p-5 space-y-4'>
+                     <div>
+                        <div className='text-xs text-slate-500 font-medium'>
+                           Позиция плана:
+                        </div>
+                        <div className='font-bold text-slate-800 text-sm mt-0.5'>
+                           {editingCommentItem.productName}
+                        </div>
+                     </div>
+
+                     <div>
+                        <label className='block text-xs font-bold text-slate-700 mb-1.5'>
+                           Укажите причину невыполнения:
+                        </label>
+                        <textarea
+                           value={reasonInput}
+                           onChange={(e) => setReasonInput(e.target.value)}
+                           placeholder='Например: Поломка слайсера, перенос партии, не привезли специи...'
+                           rows={3}
+                           autoFocus
+                           className='w-full px-3 py-2 text-xs border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-2xs resize-none'
+                        />
+                     </div>
+
+                     <div className='flex items-center justify-end gap-2 pt-2 border-t border-slate-100'>
+                        <button
+                           type='button'
+                           onClick={() => setEditingCommentItem(null)}
+                           className='px-3.5 py-2 rounded-xl border border-slate-200 text-xs font-semibold text-slate-600 hover:bg-slate-100 transition cursor-pointer'
+                        >
+                           Отмена
+                        </button>
+                        <button
+                           type='button'
+                           onClick={() => {
+                              const item = items.find(
+                                 (i) => i.id === editingCommentItem.id
+                              )
+                              if (item) {
+                                 handleUpdateResult(
+                                    item,
+                                    'OTHER',
+                                    reasonInput
+                                 )
+                                 setEditingCommentItem(null)
+                              }
+                           }}
+                           disabled={
+                              isUpdatingResultId === editingCommentItem.id
+                           }
+                           className='px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition shadow-sm flex items-center gap-1.5 cursor-pointer disabled:opacity-50'
+                        >
+                           {isUpdatingResultId === editingCommentItem.id && (
+                              <RefreshCw className='w-3.5 h-3.5 animate-spin' />
+                           )}
+                           <span>Сохранить причину</span>
+                        </button>
+                     </div>
+                  </div>
+               </div>
+            </div>
          )}
       </div>
    )

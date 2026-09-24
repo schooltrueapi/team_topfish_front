@@ -19,7 +19,7 @@ import PlanSnapshotPanel from '@/components/PlanSnapshotPanel';
 
 export default function DashboardPage() {
   const router = useRouter();
-  const { user, loading } = useAuth();
+  const { user, loading, hasPermission } = useAuth();
 
   const [currentWeek, setCurrentWeek] = useState<any>(null);
   const [items, setItems] = useState<PlanItem[]>([]);
@@ -319,8 +319,9 @@ export default function DashboardPage() {
 
   // Обновление одного пункта в локальном стейте
   const handleItemUpdated = (updatedItem: PlanItem) => {
-    setItems((prev) =>
-      prev.map((i) => {
+    let nextItems: PlanItem[] = [];
+    setItems((prev) => {
+      nextItems = prev.map((i) => {
         if (i.id !== updatedItem.id) return i;
         return {
           ...i,
@@ -331,8 +332,62 @@ export default function DashboardPage() {
           rawAbcCategory: updatedItem.rawAbcCategory ?? i.rawAbcCategory,
           rawIsHit: updatedItem.rawIsHit ?? i.rawIsHit,
         };
-      })
-    );
+      });
+      return nextItems;
+    });
+
+    // Если мы просматриваем закрытую архивную неделю, пересчитываем статистику и обновляем логи
+    if (isViewingArchive && selectedWeekId) {
+      const planned = nextItems.filter((i) => i.isPlanned);
+      const totalPlanned = planned.length;
+      const completed = planned.filter((i) => i.resultStatus === 'COMPLETED').length;
+      const forgotten = planned.filter((i) => i.resultStatus === 'FORGOTTEN').length;
+      const noRaw = planned.filter((i) => i.resultStatus === 'NO_RAW_MATERIAL').length;
+      const other = planned.filter((i) => i.resultStatus === 'OTHER').length;
+      const percentCompleted = totalPlanned > 0 ? Math.round((completed / totalPlanned) * 100) : 0;
+
+      setSelectedWeekData((prev: any) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          stats: {
+            ...prev.stats,
+            totalPlanned,
+            completed,
+            forgotten,
+            noRaw,
+            other,
+            percentCompleted,
+          },
+        };
+      });
+
+      setWeeksHistory((prev) =>
+        prev.map((w) => {
+          if (w.id !== selectedWeekId) return w;
+          return {
+            ...w,
+            totalPlanned,
+            completed,
+            forgotten,
+            noRaw,
+            other,
+            percentCompleted,
+          };
+        })
+      );
+
+      // Фоновое обновление логов архива
+      api
+        .get(`/api/weeks/${selectedWeekId}/logs`)
+        .then((res) => {
+          setSelectedWeekData((prev: any) =>
+            prev ? { ...prev, auditLogs: res.data } : prev
+          );
+        })
+        .catch(() => {});
+    }
+
     // Обновляем панель "План vs Факт" при каждом изменении галочки
     setSnapshotRefreshKey((k) => k + 1);
   };
@@ -355,6 +410,8 @@ export default function DashboardPage() {
   const hitsCount = items.filter((i) => i.smartMeta?.tag === 'HIT_REPEAT').length;
   const longTimeCount = items.filter((i) => i.smartMeta?.tag === 'LONG_TIME_NO_PLAN').length;
   const unfinishedCount = items.filter((i) => i.smartMeta?.tag === 'LAST_WEEK_UNFINISHED').length;
+
+  const canEditArchive = isViewingArchive && (hasPermission('TOGGLE_PLAN') || hasPermission('FULL_ACCESS'));
 
   return (
     <div className="min-h-screen bg-slate-100/60 pb-16">
@@ -380,6 +437,8 @@ export default function DashboardPage() {
             week={displayWeek}
             stats={selectedWeekData.stats}
             closeAuditLog={selectedWeekData.closeAuditLog}
+            auditLogs={selectedWeekData.auditLogs || []}
+            canEditArchive={canEditArchive}
             currentFilter={currentFilter}
             onFilterChange={setCurrentFilter}
             onReturnToCurrent={() => handleSelectWeek(currentWeek.id)}
@@ -400,13 +459,13 @@ export default function DashboardPage() {
           />
         )}
 
-        {/* Панель "План vs Факт" — показываем после утверждения плана */}
-        {!isInitialLoading && displayWeek?.id && (
+        {/* Панель "План vs Факт" — показываем только для текущей рабочей недели после утверждения плана */}
+        {!isViewingArchive && !isInitialLoading && displayWeek?.id && (
           <div className="mt-4">
             <PlanSnapshotPanel
               weekId={displayWeek.id}
               weekStatus={displayWeek.status || 'PLANNING'}
-              isArchive={isViewingArchive}
+              isArchive={false}
               refreshTrigger={snapshotRefreshKey}
               currentItems={items}
             />
