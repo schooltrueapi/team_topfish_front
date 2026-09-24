@@ -404,12 +404,13 @@ export default function DashboardPage() {
     fetchCurrentWeek();
   };
 
-  const plannedCount = items.filter((i) => i.isPlanned).length;
-  const noveltiesCount = items.filter((i) => i.isNew).length;
-  const outOfStockCount = items.filter((i) => (i.stockKg ?? 0) === 0).length;
-  const hitsCount = items.filter((i) => i.smartMeta?.tag === 'HIT_REPEAT').length;
-  const longTimeCount = items.filter((i) => i.smartMeta?.tag === 'LONG_TIME_NO_PLAN').length;
-  const unfinishedCount = items.filter((i) => i.smartMeta?.tag === 'LAST_WEEK_UNFINISHED').length;
+  const activeItems = items.filter((i) => !i.isDeleted);
+  const plannedCount = activeItems.filter((i) => i.isPlanned).length;
+  const noveltiesCount = activeItems.filter((i) => i.isNew).length;
+  const outOfStockCount = activeItems.filter((i) => (i.stockKg ?? 0) === 0).length;
+  const hitsCount = activeItems.filter((i) => i.smartMeta?.tag === 'HIT_REPEAT').length;
+  const longTimeCount = activeItems.filter((i) => i.smartMeta?.tag === 'LONG_TIME_NO_PLAN').length;
+  const unfinishedCount = activeItems.filter((i) => i.smartMeta?.tag === 'LAST_WEEK_UNFINISHED').length;
 
   const canEditArchive = isViewingArchive && (hasPermission('TOGGLE_PLAN') || hasPermission('FULL_ACCESS'));
 
@@ -447,7 +448,7 @@ export default function DashboardPage() {
         ) : (
           /* Обычные карточки внимания и быстрые фильтры для рабочей недели */
           <AttentionBanner
-            totalItems={items.length}
+            totalItems={activeItems.length}
             plannedCount={plannedCount}
             noveltiesCount={noveltiesCount}
             outOfStockCount={outOfStockCount}
@@ -467,7 +468,7 @@ export default function DashboardPage() {
               weekStatus={displayWeek.status || 'PLANNING'}
               isArchive={false}
               refreshTrigger={snapshotRefreshKey}
-              currentItems={items}
+              currentItems={activeItems}
             />
           </div>
         )}

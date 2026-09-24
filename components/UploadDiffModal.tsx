@@ -21,6 +21,7 @@ import {
   Flame,
   Calendar,
   Clock,
+  Trash2,
 } from 'lucide-react';
 
 export interface UploadDiffData {
@@ -57,6 +58,7 @@ export interface UploadDiffData {
     backInStockCount?: number;
     priceChangesCount?: number;
     hitsCount?: number;
+    movedToTrashCount?: number;
   };
   changes: {
     hits?: Array<{
@@ -107,6 +109,13 @@ export interface UploadDiffData {
       price?: number | null;
       stockKg?: number | null;
     }>;
+    movedToTrash?: Array<{
+      name: string;
+      category?: string | null;
+      oldStock?: number | null;
+      newStock: number;
+      reason?: string;
+    }>;
   };
 }
 
@@ -117,7 +126,7 @@ interface UploadDiffModalProps {
   uploadedAtFallback?: string | Date | null;
 }
 
-type TabType = 'all' | 'hits' | 'outOfStock' | 'novelties' | 'priceChanges' | 'backInStock' | 'stockChanges' | 'addedToWeek';
+type TabType = 'all' | 'hits' | 'outOfStock' | 'novelties' | 'priceChanges' | 'backInStock' | 'stockChanges' | 'addedToWeek' | 'movedToTrash';
 
 function fixMojibake(str?: string): string {
   if (!str) return '';
@@ -173,6 +182,7 @@ export default function UploadDiffModal({
       priceChanges: [],
       stockChanges: [],
       addedToWeek: [],
+      movedToTrash: [],
     },
     stats,
   } = data;
@@ -184,6 +194,7 @@ export default function UploadDiffModal({
   const backInStockList = changes.backInStock || [];
   const stockChangesList = changes.stockChanges || [];
   const addedToWeekList = changes.addedToWeek || [];
+  const movedToTrashList = changes.movedToTrash || [];
 
   const totalChangesCount =
     hitsList.length +
@@ -192,7 +203,8 @@ export default function UploadDiffModal({
     priceChangesList.length +
     backInStockList.length +
     stockChangesList.length +
-    addedToWeekList.length;
+    addedToWeekList.length +
+    movedToTrashList.length;
 
   const query = searchQuery.trim().toLowerCase();
 
@@ -212,6 +224,7 @@ export default function UploadDiffModal({
   const filteredBackInStock = backInStockList.filter(filterByName);
   const filteredStockChanges = stockChangesList.filter(filterByName);
   const filteredAddedToWeek = addedToWeekList.filter(filterByName);
+  const filteredMovedToTrash = movedToTrashList.filter(filterByName);
 
   const displayedTotalCount =
     filteredHits.length +
@@ -220,7 +233,8 @@ export default function UploadDiffModal({
     filteredPriceChanges.length +
     filteredBackInStock.length +
     filteredStockChanges.length +
-    filteredAddedToWeek.length;
+    filteredAddedToWeek.length +
+    filteredMovedToTrash.length;
 
   const formatKg = (val?: number | null) => {
     if (val === null || val === undefined) return '—';
@@ -385,7 +399,7 @@ export default function UploadDiffModal({
 
         {/* Быстрые карточки KPI (кликабельные) */}
         <div className={`grid gap-2.5 p-4 bg-slate-50/70 border-b border-slate-200 shrink-0 ${
-          hitsList.length > 0 ? 'grid-cols-2 sm:grid-cols-5' : 'grid-cols-2 sm:grid-cols-4'
+          hitsList.length > 0 ? 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-6' : 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-5'
         }`}>
           {/* 🔥 Хиты (разлетелись) */}
           {hitsList.length > 0 && (
@@ -430,6 +444,28 @@ export default function UploadDiffModal({
             </div>
             <div className="mt-1 flex items-baseline gap-1.5">
               <span className="text-xl font-black text-rose-900">{outOfStockList.length}</span>
+              <span className="text-[11px] text-slate-400">позиций</span>
+            </div>
+          </button>
+
+          {/* 🗑 Ушли в корзину */}
+          <button
+            type="button"
+            onClick={() => setActiveTab(activeTab === 'movedToTrash' ? 'all' : 'movedToTrash')}
+            className={`text-left p-2.5 rounded-xl border transition flex flex-col justify-between ${
+              activeTab === 'movedToTrash'
+                ? 'bg-red-50 border-red-500 ring-2 ring-red-500/20 shadow-sm'
+                : 'bg-white border-slate-200 hover:border-red-300'
+            }`}
+          >
+            <div className="flex items-center justify-between w-full">
+              <span className="text-[11px] font-bold text-red-700 uppercase tracking-tight">
+                Ушли в корзину
+              </span>
+              <Trash2 className="w-4 h-4 text-red-600 shrink-0" />
+            </div>
+            <div className="mt-1 flex items-baseline gap-1.5">
+              <span className="text-xl font-black text-red-950">{movedToTrashList.length}</span>
               <span className="text-[11px] text-slate-400">позиций</span>
             </div>
           </button>
@@ -553,6 +589,24 @@ export default function UploadDiffModal({
                   activeTab === 'outOfStock' ? 'bg-rose-800 text-white' : 'bg-rose-200 text-rose-800'
                 }`}>
                   {outOfStockList.length}
+                </span>
+              </button>
+            )}
+
+            {movedToTrashList.length > 0 && (
+              <button
+                onClick={() => setActiveTab('movedToTrash')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition flex items-center gap-1.5 ${
+                  activeTab === 'movedToTrash'
+                    ? 'bg-red-600 text-white shadow-sm'
+                    : 'bg-red-50 text-red-700 hover:bg-red-100'
+                }`}
+              >
+                <span>Ушли в корзину</span>
+                <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-bold ${
+                  activeTab === 'movedToTrash' ? 'bg-red-800 text-white' : 'bg-red-200 text-red-800'
+                }`}>
+                  {movedToTrashList.length}
                 </span>
               </button>
             )}
@@ -839,6 +893,63 @@ export default function UploadDiffModal({
                             )}
                             <span className="px-2.5 py-1 rounded-lg bg-purple-100 text-purple-800 font-bold border border-purple-200">
                               Остаток: {formatKg(item.stockKg)}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+              {/* Секция: Ушли в корзину */}
+              {(activeTab === 'all' || activeTab === 'movedToTrash') &&
+                filteredMovedToTrash.length > 0 && (
+                  <div className="bg-white rounded-xl border border-red-200 overflow-hidden shadow-sm">
+                    <div className="px-4 py-2.5 bg-red-50/80 border-b border-red-200 flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Trash2 className="w-4 h-4 text-red-600" />
+                        <span className="font-bold text-xs text-red-900 uppercase tracking-tight">
+                          Ушли в корзину (отсутствуют в новом файле 1С)
+                        </span>
+                      </div>
+                      <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-red-200 text-red-800">
+                        {filteredMovedToTrash.length} поз.
+                      </span>
+                    </div>
+                    <div className="divide-y divide-slate-100">
+                      {filteredMovedToTrash.map((item, idx) => (
+                        <div
+                          key={`trash-${idx}`}
+                          className="p-3 sm:px-4 hover:bg-red-50/30 transition flex flex-col sm:flex-row sm:items-center justify-between gap-2"
+                        >
+                          <div>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-bold text-slate-900 text-sm">
+                                {item.name}
+                              </span>
+                              {item.category && (
+                                <span className="text-[10px] font-medium px-2 py-0.5 rounded bg-slate-100 text-slate-600">
+                                  {item.category}
+                                </span>
+                              )}
+                              <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase bg-red-100 text-red-800 border border-red-200">
+                                В корзине
+                              </span>
+                            </div>
+                            {item.reason && (
+                              <p className="text-[11px] text-red-600 mt-0.5 font-medium">
+                                {item.reason}
+                              </p>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2 text-xs font-semibold shrink-0">
+                            {item.oldStock !== undefined && item.oldStock !== null && (
+                              <span className="text-slate-400">
+                                Было: {formatKg(item.oldStock)}
+                              </span>
+                            )}
+                            <span className="px-2.5 py-1 rounded-lg bg-red-100 text-red-800 font-bold border border-red-200">
+                              Остаток: 0 кг
                             </span>
                           </div>
                         </div>
