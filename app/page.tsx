@@ -15,6 +15,7 @@ import RolesModal from '@/components/RolesModal';
 import UploadModal from '@/components/UploadModal';
 import UploadDiffModal, { UploadDiffData } from '@/components/UploadDiffModal';
 import WeekHistoryModal, { WeekHistoryItem } from '@/components/WeekHistoryModal';
+import PlanSnapshotPanel from '@/components/PlanSnapshotPanel';
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -41,6 +42,7 @@ export default function DashboardPage() {
 
   const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [autoSyncPrice, setAutoSyncPrice] = useState<boolean>(true);
+  const [snapshotRefreshKey, setSnapshotRefreshKey] = useState(0);
 
   // Редирект на логин, если не авторизован
   useEffect(() => {
@@ -99,10 +101,12 @@ export default function DashboardPage() {
     }
   };
 
-  // Загрузка данных текущей недели
-  const fetchCurrentWeek = async () => {
+  // Загрузка данных текущей недели (isBackground: без мерцания экрана)
+  const fetchCurrentWeek = async (isBackground = false) => {
     try {
-      setIsInitialLoading(true);
+      if (!isBackground) {
+        setIsInitialLoading(true);
+      }
       const res = await api.get('/api/weeks/current');
       fetchWeeksHistory();
       if (res.data.needsReview) {
@@ -117,7 +121,32 @@ export default function DashboardPage() {
 
         // Если сейчас просматривается текущая неделя, обновляем её позиции
         if (!selectedWeekId || selectedWeekId === res.data.currentWeek?.id) {
-          setItems(res.data.currentWeek?.items || []);
+          const newItems: PlanItem[] = res.data.currentWeek?.items || [];
+          if (isBackground) {
+            setItems((prev) => {
+              if (prev.length !== newItems.length) {
+                setSnapshotRefreshKey((k) => k + 1);
+                return newItems;
+              }
+              const hasDiff = prev.some((p, idx) => {
+                const n = newItems[idx];
+                return (
+                  !n ||
+                  p.id !== n.id ||
+                  p.isPlanned !== n.isPlanned ||
+                  p.updatedAt !== n.updatedAt ||
+                  p.resultStatus !== n.resultStatus
+                );
+              });
+              if (hasDiff) {
+                setSnapshotRefreshKey((k) => k + 1);
+                return newItems;
+              }
+              return prev;
+            });
+          } else {
+            setItems(newItems);
+          }
         }
 
         if (res.data.currentWeek?.id) {
@@ -274,11 +303,14 @@ export default function DashboardPage() {
         };
       })
     );
+    // Обновляем панель "План vs Факт" при каждом изменении галочки
+    setSnapshotRefreshKey((k) => k + 1);
   };
 
   // Удаление товара из локального стейта
   const handleItemDeleted = (deletedId: string) => {
     setItems((prev) => prev.filter((i) => i.id !== deletedId));
+    setSnapshotRefreshKey((k) => k + 1);
   };
 
   const handleReviewConfirmed = () => {
@@ -289,6 +321,33 @@ export default function DashboardPage() {
 
   const displayWeek = selectedWeekData?.week || currentWeek;
   const isViewingArchive = Boolean(selectedWeekId && currentWeek && selectedWeekId !== currentWeek.id) || displayWeek?.status === 'CLOSED';
+
+  // Периодическая фоновая синхронизация данных (каждые 5 сек), чтобы изменения от других пользователей
+  // (например, Технолога на другом компьютере) сразу появлялись на экране без перезагрузки
+  useEffect(() => {
+    if (!user || isViewingArchive) return;
+
+    const interval = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        fetchCurrentWeek(true);
+      }
+    }, 5000);
+
+    const handleFocusOrVisible = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        fetchCurrentWeek(true);
+      }
+    };
+
+    window.addEventListener('focus', handleFocusOrVisible);
+    document.addEventListener('visibilitychange', handleFocusOrVisible);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', handleFocusOrVisible);
+      document.removeEventListener('visibilitychange', handleFocusOrVisible);
+    };
+  }, [user, isViewingArchive, selectedWeekId]);
 
   const plannedCount = items.filter((i) => i.isPlanned).length;
   const noveltiesCount = items.filter((i) => i.isNew).length;
@@ -341,6 +400,19 @@ export default function DashboardPage() {
           />
         )}
 
+        {/* Панель "План vs Факт" — показываем после утверждения плана */}
+        {!isInitialLoading && displayWeek?.id && (
+          <div className="mt-4">
+            <PlanSnapshotPanel
+              weekId={displayWeek.id}
+              weekStatus={displayWeek.status || 'PLANNING'}
+              isArchive={isViewingArchive}
+              refreshTrigger={snapshotRefreshKey}
+              currentItems={items}
+            />
+          </div>
+        )}
+
         {/* Чеклист */}
         {isInitialLoading ? (
           <div className="p-12 text-center text-slate-400 text-sm">
@@ -359,8 +431,8 @@ export default function DashboardPage() {
             onFilterChange={setCurrentFilter}
             onItemUpdated={handleItemUpdated}
             onItemDeleted={handleItemDeleted}
-            onBulkUpdated={fetchCurrentWeek}
-            onPlanConfirmed={fetchCurrentWeek}
+            onBulkUpdated={() => { fetchCurrentWeek(); setSnapshotRefreshKey((k) => k + 1); }}
+            onPlanConfirmed={() => { fetchCurrentWeek(); setSnapshotRefreshKey((k) => k + 1); }}
             onOpenUpload={() => setIsUploadOpen(true)}
           />
         )}
