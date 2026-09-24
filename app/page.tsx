@@ -233,6 +233,36 @@ export default function DashboardPage() {
     }
   }, [user]);
 
+  const displayWeek = selectedWeekData?.week || currentWeek;
+  const isViewingArchive = Boolean(selectedWeekId && currentWeek && selectedWeekId !== currentWeek.id) || displayWeek?.status === 'CLOSED';
+
+  // Периодическая фоновая синхронизация данных (каждые 5 сек), чтобы изменения от других пользователей
+  // (например, Технолога на другом компьютере) сразу появлялись на экране без перезагрузки
+  useEffect(() => {
+    if (!user || isViewingArchive) return;
+
+    const interval = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        fetchCurrentWeek(true);
+      }
+    }, 5000);
+
+    const handleFocusOrVisible = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        fetchCurrentWeek(true);
+      }
+    };
+
+    window.addEventListener('focus', handleFocusOrVisible);
+    document.addEventListener('visibilitychange', handleFocusOrVisible);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', handleFocusOrVisible);
+      document.removeEventListener('visibilitychange', handleFocusOrVisible);
+    };
+  }, [user, isViewingArchive, selectedWeekId]);
+
   // Переключение выбранной недели (просмотр архива или текущей)
   const handleSelectWeek = async (weekId: string) => {
     if (!currentWeek) return;
@@ -318,36 +348,6 @@ export default function DashboardPage() {
     setReviewWeek(null);
     fetchCurrentWeek();
   };
-
-  const displayWeek = selectedWeekData?.week || currentWeek;
-  const isViewingArchive = Boolean(selectedWeekId && currentWeek && selectedWeekId !== currentWeek.id) || displayWeek?.status === 'CLOSED';
-
-  // Периодическая фоновая синхронизация данных (каждые 5 сек), чтобы изменения от других пользователей
-  // (например, Технолога на другом компьютере) сразу появлялись на экране без перезагрузки
-  useEffect(() => {
-    if (!user || isViewingArchive) return;
-
-    const interval = setInterval(() => {
-      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
-        fetchCurrentWeek(true);
-      }
-    }, 5000);
-
-    const handleFocusOrVisible = () => {
-      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
-        fetchCurrentWeek(true);
-      }
-    };
-
-    window.addEventListener('focus', handleFocusOrVisible);
-    document.addEventListener('visibilitychange', handleFocusOrVisible);
-
-    return () => {
-      clearInterval(interval);
-      window.removeEventListener('focus', handleFocusOrVisible);
-      document.removeEventListener('visibilitychange', handleFocusOrVisible);
-    };
-  }, [user, isViewingArchive, selectedWeekId]);
 
   const plannedCount = items.filter((i) => i.isPlanned).length;
   const noveltiesCount = items.filter((i) => i.isNew).length;
