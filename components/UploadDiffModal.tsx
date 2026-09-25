@@ -22,12 +22,17 @@ import {
   Calendar,
   Clock,
   Trash2,
+  RotateCcw,
 } from 'lucide-react';
+import api from '@/lib/api';
+import toast from 'react-hot-toast';
 
 export interface UploadDiffData {
   fileName?: string;
   uploadedAt?: string | Date | null;
   message?: string;
+  canRevertUpload?: boolean;
+  backupInfo?: any;
   autoSyncPrice?: boolean;
   syncResult?: {
     summary?: {
@@ -124,6 +129,9 @@ interface UploadDiffModalProps {
   onClose: () => void;
   data: UploadDiffData | null;
   uploadedAtFallback?: string | Date | null;
+  weekId?: string;
+  canRevert?: boolean;
+  onRevertSuccess?: (newItems: any[]) => void;
 }
 
 type TabType = 'all' | 'hits' | 'outOfStock' | 'novelties' | 'priceChanges' | 'backInStock' | 'stockChanges' | 'addedToWeek' | 'movedToTrash';
@@ -143,9 +151,32 @@ export default function UploadDiffModal({
   onClose,
   data,
   uploadedAtFallback,
+  weekId,
+  canRevert = false,
+  onRevertSuccess,
 }: UploadDiffModalProps) {
   const [activeTab, setActiveTab] = useState<TabType>('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const [showRevertConfirm, setShowRevertConfirm] = useState(false);
+  const [isReverting, setIsReverting] = useState(false);
+
+  const canShowRevert = Boolean((canRevert || data?.canRevertUpload) && weekId);
+
+  const handleRevert = async () => {
+    if (!weekId) return;
+    try {
+      setIsReverting(true);
+      const res = await api.post('/api/plan/upload/revert', { weekId });
+      toast.success(res.data.message || 'Загрузка отменена, данные недели восстановлены!');
+      setShowRevertConfirm(false);
+      onRevertSuccess?.(res.data.items);
+      onClose();
+    } catch (err: any) {
+      toast.error(err.response?.data?.error || 'Ошибка отката загрузки');
+    } finally {
+      setIsReverting(false);
+    }
+  };
 
   const uploadDateRaw = data?.uploadedAt || uploadedAtFallback;
   const formattedUploadDate = useMemo(() => {
@@ -290,14 +321,68 @@ export default function UploadDiffModal({
               </div>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 rounded-xl transition"
-            title="Закрыть"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-2">
+            {canShowRevert && (
+              <button
+                type="button"
+                onClick={() => setShowRevertConfirm(true)}
+                disabled={isReverting}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 hover:text-rose-900 border border-rose-200 rounded-xl text-xs font-bold transition shadow-2xs cursor-pointer"
+                title="Откатить эту загрузку к состоянию до файла"
+              >
+                <RotateCcw className="w-3.5 h-3.5 text-rose-600" />
+                <span>Откатить эту загрузку</span>
+              </button>
+            )}
+            <button
+              onClick={onClose}
+              className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 rounded-xl transition"
+              title="Закрыть"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
+
+        {/* Модалка подтверждения отката */}
+        {showRevertConfirm && (
+          <div className="fixed inset-0 z-60 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-md w-full p-6 space-y-4 animate-in fade-in zoom-in-95">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-rose-100 text-rose-700 flex items-center justify-center font-bold shrink-0">
+                  <RotateCcw className="w-5 h-5 text-rose-600" />
+                </div>
+                <div>
+                  <h4 className="font-bold text-slate-900 text-base">Откатить загрузку файла?</h4>
+                  <p className="text-xs text-slate-500">Возврат к состоянию до загрузки</p>
+                </div>
+              </div>
+              <p className="text-xs text-slate-600 leading-relaxed">
+                Вы действительно хотите отменить загрузку файла <strong>«{fileName}»</strong>?
+                Все остатки, цены и состав позиций вернутся к состоянию до этого файла.
+                Синхронизация с Прайсом и Доставкой обновится автоматически.
+              </p>
+              <div className="flex items-center justify-end gap-2.5 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowRevertConfirm(false)}
+                  disabled={isReverting}
+                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition"
+                >
+                  Отмена
+                </button>
+                <button
+                  type="button"
+                  onClick={handleRevert}
+                  disabled={isReverting}
+                  className="px-4 py-2 text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white rounded-xl shadow-md shadow-rose-600/20 transition flex items-center gap-1.5"
+                >
+                  {isReverting ? <span>Откат...</span> : <span>Да, откатить</span>}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Баннер статуса синхронизации с TopFish Price */}
         {data.syncResult && (

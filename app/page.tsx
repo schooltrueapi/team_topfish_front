@@ -16,6 +16,7 @@ import UploadModal from '@/components/UploadModal';
 import UploadDiffModal, { UploadDiffData } from '@/components/UploadDiffModal';
 import WeekHistoryModal, { WeekHistoryItem } from '@/components/WeekHistoryModal';
 import PlanSnapshotPanel from '@/components/PlanSnapshotPanel';
+import { RotateCcw } from 'lucide-react';
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -39,6 +40,8 @@ export default function DashboardPage() {
   const [isRolesOpen, setIsRolesOpen] = useState(false);
   const [isDiffOpen, setIsDiffOpen] = useState(false);
   const [uploadDiffData, setUploadDiffData] = useState<UploadDiffData | null>(null);
+  const [isRevertConfirmOpen, setIsRevertConfirmOpen] = useState(false);
+  const [isReverting, setIsReverting] = useState(false);
 
   const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [autoSyncPrice, setAutoSyncPrice] = useState<boolean>(true);
@@ -429,6 +432,7 @@ export default function DashboardPage() {
         onOpenHistory={() => setIsHistoryOpen(true)}
         onSelectWeek={handleSelectWeek}
         onReturnToCurrent={() => handleSelectWeek(currentWeek.id)}
+        onRevertUpload={() => setIsRevertConfirmOpen(true)}
       />
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6">
@@ -538,7 +542,76 @@ export default function DashboardPage() {
           onClose={() => setIsDiffOpen(false)}
           data={uploadDiffData}
           uploadedAtFallback={displayWeek?.lastUploadedAt || displayWeek?.updatedAt}
+          weekId={displayWeek?.id}
+          canRevert={Boolean(currentWeek?.canRevertUpload)}
+          onRevertSuccess={(restoredItems) => {
+            setItems(restoredItems);
+            fetchCurrentWeek();
+            setUploadDiffData(null);
+            try {
+              localStorage.removeItem(`topfish_diff_${currentWeek.id}`);
+            } catch (e) {}
+          }}
         />
+      )}
+
+      {/* Модалка подтверждения отката из Navbar */}
+      {isRevertConfirmOpen && currentWeek && (
+        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-md w-full p-6 space-y-4 animate-in fade-in zoom-in-95">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-rose-100 text-rose-700 flex items-center justify-center font-bold shrink-0">
+                <RotateCcw className="w-5 h-5 text-rose-600" />
+              </div>
+              <div>
+                <h4 className="font-bold text-slate-900 text-base">Откатить загрузку файла?</h4>
+                <p className="text-xs text-slate-500">Возврат к состоянию до загрузки</p>
+              </div>
+            </div>
+            <p className="text-xs text-slate-600 leading-relaxed">
+              Вы действительно хотите отменить загрузку файла{' '}
+              <strong>«{currentWeek.backupInfo?.appliedFileName || currentWeek.excelFileName || '1С'}»</strong>?
+              Все позиции недели вернутся к прежнему состоянию ({currentWeek.backupInfo?.itemsCount ?? 'прежние'} поз.),
+              а правильные остатки будут повторно синхронизированы с Прайсом и Доставкой.
+            </p>
+            <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setIsRevertConfirmOpen(false)}
+                disabled={isReverting}
+                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition"
+              >
+                Отмена
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  if (!currentWeek?.id) return;
+                  try {
+                    setIsReverting(true);
+                    const res = await api.post('/api/plan/upload/revert', { weekId: currentWeek.id });
+                    toast.success(res.data.message || 'Загрузка успешно отменена!');
+                    setItems(res.data.items || []);
+                    fetchCurrentWeek();
+                    setUploadDiffData(null);
+                    setIsRevertConfirmOpen(false);
+                    try {
+                      localStorage.removeItem(`topfish_diff_${currentWeek.id}`);
+                    } catch (e) {}
+                  } catch (err: any) {
+                    toast.error(err.response?.data?.error || 'Ошибка отката загрузки');
+                  } finally {
+                    setIsReverting(false);
+                  }
+                }}
+                disabled={isReverting}
+                className="px-4 py-2 text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white rounded-xl shadow-md shadow-rose-600/20 transition flex items-center gap-1.5"
+              >
+                {isReverting ? <span>Откат...</span> : <span>Да, откатить загрузку</span>}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Выдвижная панель логов аудита */}

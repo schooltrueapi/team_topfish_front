@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { useAuth } from '@/context/AuthContext';
-import { Fish, Calendar, Users, History, LogOut, UploadCloud, CheckCircle2, FileSpreadsheet, Archive } from 'lucide-react';
+import { Fish, Calendar, Users, History, LogOut, UploadCloud, CheckCircle2, FileSpreadsheet, Archive, RotateCcw } from 'lucide-react';
 
 interface NavbarProps {
   currentWeek: any;
@@ -16,6 +16,7 @@ interface NavbarProps {
   onOpenHistory: () => void;
   onSelectWeek?: (weekId: string) => void;
   onReturnToCurrent?: () => void;
+  onRevertUpload?: () => void;
 }
 
 export default function Navbar({
@@ -30,6 +31,7 @@ export default function Navbar({
   onOpenHistory,
   onSelectWeek,
   onReturnToCurrent,
+  onRevertUpload,
 }: NavbarProps) {
   const { user, logout, hasPermission } = useAuth();
   const displayWeek = viewingWeek || currentWeek;
@@ -122,6 +124,17 @@ export default function Navbar({
               >
                 <FileSpreadsheet className="w-4 h-4 text-blue-600" />
                 <span className="hidden sm:inline">Отчет 1С</span>
+              </button>
+            )}
+
+            {currentWeek?.canRevertUpload && hasPermission('UPLOAD_1C') && !isViewingArchive && onRevertUpload && (
+              <button
+                onClick={onRevertUpload}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-rose-50 text-rose-700 hover:bg-rose-100 rounded-lg text-xs font-semibold border border-rose-200 transition shadow-2xs animate-in fade-in cursor-pointer"
+                title={`Откатить загрузку "${currentWeek.backupInfo?.appliedFileName || '1С'}" к состоянию до файла`}
+              >
+                <RotateCcw className="w-4 h-4 text-rose-600" />
+                <span className="hidden sm:inline">Откатить 1С</span>
               </button>
             )}
 
