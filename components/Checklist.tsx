@@ -237,19 +237,28 @@ export default function Checklist({
       'all' | '2' | '3' | '4' | '5plus'
    >('all')
 
-   // Сортировка по остатку и оптовой цене
-   const [sortField, setSortField] = useState<SortField>('none')
-   const [sortDirection, setSortDirection] = useState<SortDirection>('asc')
+   // Сортировка по остатку и оптовой цене (по умолчанию: по остатку от большего к 0)
+   const [sortField, setSortField] = useState<SortField>('stock')
+   const [sortDirection, setSortDirection] = useState<SortDirection>('desc')
 
    const handleToggleSort = (field: 'stock' | 'price') => {
       if (sortField !== field) {
          setSortField(field)
-         setSortDirection('asc')
-      } else if (sortDirection === 'asc') {
-         setSortDirection('desc')
+         setSortDirection(field === 'stock' ? 'desc' : 'asc')
+      } else if (field === 'stock') {
+         if (sortDirection === 'desc') {
+            setSortDirection('asc')
+         } else {
+            setSortField('none')
+            setSortDirection('asc')
+         }
       } else {
-         setSortField('none')
-         setSortDirection('asc')
+         if (sortDirection === 'asc') {
+            setSortDirection('desc')
+         } else {
+            setSortField('none')
+            setSortDirection('asc')
+         }
       }
    }
 
@@ -413,6 +422,13 @@ export default function Checklist({
    const unfinishedCount = activeItems.filter(
       (i) => i.smartMeta?.tag === 'LAST_WEEK_UNFINISHED'
    ).length
+
+   // Если был включен фильтр "Долги", но долги сбросились (например, после утверждения плана) — переключаем на "Все"
+   useEffect(() => {
+      if (currentFilter === 'unfinished' && unfinishedCount === 0) {
+         onFilterChange('all')
+      }
+   }, [currentFilter, unfinishedCount, onFilterChange])
 
    const handleSyncDostavka = async () => {
       if (activeItems.length === 0) {
@@ -689,7 +705,7 @@ export default function Checklist({
          actionType: 'HITS',
          title: 'Добавить все хиты в план?',
          description:
-            'Товары высокого спроса, которые были полностью раскуплены (остаток 0..2 кг)',
+            'Товары высокого спроса (партии от 5 кг), которые были полностью раскуплены (остаток 0..2 кг)',
          items: hitItems,
       })
    }
@@ -1093,7 +1109,7 @@ export default function Checklist({
                               ? 'bg-gradient-to-r from-orange-600 to-amber-600 text-white shadow-sm ring-1 ring-orange-500'
                               : 'bg-orange-50 border border-orange-200 text-orange-800 hover:bg-orange-100'
                         }`}
-                        title='Товары, которые производились на прошлой неделе и были полностью раскуплены (остаток 0 кг)'
+                        title='Товары, которые производились на прошлой неделе в объеме от 5 кг и были полностью раскуплены (остаток 0..2 кг)'
                      >
                         <span>🔥</span>
                         <span>Хиты ({hitsCount})</span>
@@ -1430,10 +1446,10 @@ export default function Checklist({
                               }`}
                               title={
                                  sortField === 'stock'
-                                    ? sortDirection === 'asc'
-                                       ? 'Сортировка: Остаток по возрастанию (клик — по убыванию)'
-                                       : 'Сортировка: Остаток по убыванию (клик — сброс)'
-                                    : 'Сортировка по остатку (возрастание)'
+                                    ? sortDirection === 'desc'
+                                       ? 'Сортировка: Остаток по убыванию (клик — по возрастанию)'
+                                       : 'Сортировка: Остаток по возрастанию (клик — сброс)'
+                                    : 'Сортировка по остатку (от большего к 0)'
                               }
                            >
                               <span>Остаток 1С</span>
