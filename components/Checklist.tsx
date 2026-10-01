@@ -6,6 +6,7 @@ import toast from 'react-hot-toast'
 import {
    Search,
    CheckSquare,
+   Check,
    Square,
    Sparkles,
    AlertTriangle,
@@ -26,6 +27,8 @@ import {
    ArrowDown,
    X,
    Pencil,
+   FlaskConical,
+   Eye,
 } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import BulkPlanModal, { BulkActionType } from './BulkPlanModal'
@@ -51,6 +54,9 @@ export interface PlanItem {
    updatedAt?: string
    resultStatus?: string | null
    reasonComment?: string | null
+   isTrialNovelty?: boolean
+   trialNoveltyId?: string
+   imageUrl?: string | null
    abcCategory?: 'A' | 'B' | 'C' | null
    rawAbcCategory?: 'A' | 'B' | 'C' | null
    salesPercent?: number | null
@@ -189,14 +195,17 @@ export default function Checklist({
 }: ChecklistProps) {
    const { hasPermission } = useAuth()
    const isClosed = weekStatus === 'CLOSED' || isArchive
-   const canEditArchive = isClosed && (hasPermission('TOGGLE_PLAN') || hasPermission('FULL_ACCESS'))
+   const canEditArchive =
+      isClosed && (hasPermission('TOGGLE_PLAN') || hasPermission('FULL_ACCESS'))
    const canTogglePlan = hasPermission('TOGGLE_PLAN') && !isClosed
    const canUpload1C = hasPermission('UPLOAD_1C') && !isClosed
 
    const [search, setSearch] = useState('')
    const [selectedCategory, setSelectedCategory] = useState('ALL')
    const [isTogglingId, setIsTogglingId] = useState<string | null>(null)
-   const [isUpdatingResultId, setIsUpdatingResultId] = useState<string | null>(null)
+   const [isUpdatingResultId, setIsUpdatingResultId] = useState<string | null>(
+      null
+   )
    const [editingCommentItem, setEditingCommentItem] = useState<{
       id: string
       productName: string
@@ -218,6 +227,18 @@ export default function Checklist({
    const [isSyncingPrice, setIsSyncingPrice] = useState(false)
    const [isSyncingDostavka, setIsSyncingDostavka] = useState(false)
    const [isSyncingAll, setIsSyncingAll] = useState(false)
+   const [previewImageModal, setPreviewImageModal] = useState<{
+      url: string
+      title: string
+   } | null>(null)
+
+   const getFullImageUrl = (path?: string | null) => {
+      if (!path) return null
+      if (path.startsWith('http://') || path.startsWith('https://')) return path
+      const backendUrl =
+         process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4001'
+      return `${backendUrl.replace(/\/$/, '')}${path}`
+   }
    const [hoveredTooltip, setHoveredTooltip] = useState<{
       item: PlanItem
       rect: DOMRect
@@ -284,7 +305,9 @@ export default function Checklist({
    // Категории (только активные товары)
    const categories = [
       'ALL',
-      ...Array.from(new Set(activeItems.map((i) => i.category).filter(Boolean))),
+      ...Array.from(
+         new Set(activeItems.map((i) => i.category).filter(Boolean))
+      ),
    ]
 
    // Фильтрация элементов (только среди активных товаров)
@@ -570,6 +593,35 @@ export default function Checklist({
          )
          return
       }
+
+      // Если это позиция из "Вторых новинок" (новинка-идея на пробу)
+      if (item.isTrialNovelty && item.trialNoveltyId) {
+         try {
+            setIsTogglingId(item.id)
+            await api.post(
+               `/api/trial-novelties/${item.trialNoveltyId}/toggle-plan`,
+               {
+                  weekId,
+                  addToPlan: false,
+               }
+            )
+            toast(
+               `Новинка «${item.productName}» возвращена в банк идей (план не выполнился) ↩️`,
+               {
+                  icon: '🔄',
+               }
+            )
+            onItemDeleted?.(item.id)
+         } catch (err: any) {
+            toast.error(
+               err.response?.data?.error || 'Ошибка возврата новинки в идеи'
+            )
+         } finally {
+            setIsTogglingId(null)
+         }
+         return
+      }
+
       try {
          setIsTogglingId(item.id)
          const res = await api.put(`/api/plan/item/${item.id}/toggle`)
@@ -837,8 +889,6 @@ export default function Checklist({
       }
    }
 
-
-
    return (
       <div className='bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden space-y-4'>
          {/* Верхняя панель: поиск, фильтры и действия */}
@@ -878,8 +928,9 @@ export default function Checklist({
                               <option key={cat as string} value={cat as string}>
                                  {cat} (
                                  {
-                                    activeItems.filter((i) => i.category === cat)
-                                       .length
+                                    activeItems.filter(
+                                       (i) => i.category === cat
+                                    ).length
                                  }
                                  )
                               </option>
@@ -1336,7 +1387,11 @@ export default function Checklist({
                      <AlertTriangle className='w-3 h-3 text-slate-400' />
                      <span>
                         Остаток 0 (
-                         {activeItems.filter((i) => (i.stockKg ?? 0) === 0).length})
+                        {
+                           activeItems.filter((i) => (i.stockKg ?? 0) === 0)
+                              .length
+                        }
+                        )
                      </span>
                   </button>
                </div>
@@ -1537,6 +1592,11 @@ export default function Checklist({
                            rowBgClass = lt.row
                         }
 
+                        if (item.isTrialNovelty) {
+                           rowBgClass =
+                              'bg-purple-50/40 hover:bg-purple-50/75 border-l-4 border-l-purple-600'
+                        }
+
                         return (
                            <tr
                               key={item.id}
@@ -1562,412 +1622,440 @@ export default function Checklist({
                                        isTogglingId === item.id
                                     }
                                     title={
-                                       !canTogglePlan
-                                          ? isClosed
-                                             ? 'Архив доступен только для чтения'
-                                             : 'У вашей роли нет прав для отметки в плане'
-                                          : isClosed
-                                            ? item.isPlanned
-                                               ? 'Нажмите, чтобы исключить позицию из чеклиста архива'
-                                               : 'Нажмите, чтобы включить позицию в чеклист архива'
-                                            : ''
+                                       item.isTrialNovelty
+                                          ? 'Новинка-идея на пробу. Нажмите, чтобы вернуть в банк идей (план не выполнился)'
+                                          : !canTogglePlan
+                                            ? isClosed
+                                               ? 'Архив доступен только для чтения'
+                                               : 'У вашей роли нет прав для отметки в плане'
+                                            : isClosed
+                                              ? item.isPlanned
+                                                 ? 'Нажмите, чтобы исключить позицию из чеклиста архива'
+                                                 : 'Нажмите, чтобы включить позицию в чеклист архива'
+                                              : ''
                                     }
                                     className={`w-6 h-6 rounded-lg flex items-center justify-center transition ${
                                        !canTogglePlan
                                           ? 'cursor-not-allowed opacity-50'
-                                          : ''
+                                          : 'cursor-pointer'
                                     } ${
-                                       item.isPlanned
-                                          ? 'bg-teal-600 text-white shadow-sm shadow-teal-600/30'
-                                          : isHit
-                                            ? 'bg-white border-2 border-orange-400 hover:border-orange-600 text-transparent shadow-2xs'
-                                            : 'bg-white border-2 border-slate-300 hover:border-teal-500 text-transparent'
+                                       item.isTrialNovelty
+                                          ? 'bg-[#2ee5f7] text-slate-950 font-bold shadow-sm shadow-[#2ee5f7]/40 ring-2 ring-[#2ee5f7]/50'
+                                          : item.isPlanned
+                                            ? 'bg-teal-600 text-white shadow-sm shadow-teal-600/30'
+                                            : isHit
+                                              ? 'bg-white border-2 border-orange-400 hover:border-orange-600 text-transparent shadow-2xs'
+                                              : 'bg-white border-2 border-slate-300 hover:border-teal-500 text-transparent'
                                     }`}
                                  >
-                                    {item.isPlanned && (
-                                       <CheckSquare className='w-4 h-4' />
-                                    )}
+                                    {item.isPlanned &&
+                                       (item.isTrialNovelty ? (
+                                          <Check className='w-4 h-4 text-slate-950 stroke-[3]' />
+                                       ) : (
+                                          <CheckSquare className='w-4 h-4 text-white' />
+                                       ))}
                                  </button>
                               </td>
 
                               {/* Наименование + Бейджи */}
                               <td className='px-3 py-3'>
-                                 <div className='flex flex-wrap items-center gap-1.5'>
-                                    <span
-                                       className={`font-bold text-xs sm:text-sm ${
-                                          item.isPlanned
-                                             ? 'text-slate-900'
-                                             : isHit
-                                               ? 'text-orange-950 font-black'
-                                               : 'text-slate-700'
-                                       }`}
-                                    >
-                                       {item.productName}
-                                    </span>
-
-                                    {/* Маркеры спроса: Хит или Категория A / B / C */}
-                                    {item.abcManualDisabled ? (
-                                       <button
-                                          type='button'
+                                 <div className='flex items-center gap-2.5'>
+                                    {/* Миниатюра фото для новинки-идеи */}
+                                    {item.imageUrl && (
+                                       <div
                                           onClick={(e) => {
                                              e.stopPropagation()
-                                             if (canTogglePlan)
-                                                handleToggleAbc(item)
+                                             const fullUrl = getFullImageUrl(
+                                                item.imageUrl
+                                             )
+                                             if (fullUrl) {
+                                                setPreviewImageModal({ url: fullUrl, title: item.productName })
+                                             }
                                           }}
-                                          disabled={
-                                             !canTogglePlan ||
-                                             isTogglingAbcId === item.id
-                                          }
-                                          title={
-                                             canTogglePlan
-                                                ? 'Маркер был снят вручную. Нажмите, чтобы вернуть маркер'
-                                                : 'Маркер снят'
-                                          }
-                                          className='inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold text-slate-400 bg-slate-100 hover:bg-slate-200 border border-slate-300 transition cursor-pointer'
+                                          className='relative w-9 h-9 rounded-xl overflow-hidden border border-purple-300 shadow-2xs shrink-0 cursor-pointer hover:ring-2 hover:ring-purple-500 transition group/thumb select-none'
+                                          title='Нажмите, чтобы посмотреть фото новинки'
                                        >
-                                          <span className='line-through'>
-                                             {item.rawIsHit
-                                                ? '🔥 Хит'
-                                                : item.rawAbcCategory
-                                                  ? `Кат. ${item.rawAbcCategory}`
-                                                  : 'Маркер'}
-                                          </span>
-                                          {canTogglePlan && (
-                                             <span className='text-[9px] text-slate-500 hover:text-slate-700 font-bold'>
-                                                ↺ вернуть
-                                             </span>
-                                          )}
-                                       </button>
-                                    ) : isHitFresh ? (
-                                       <button
-                                          type='button'
-                                          onClick={(e) => {
-                                             e.stopPropagation()
-                                             setHoveredTooltip(null)
-                                             if (canTogglePlan)
-                                                handleToggleAbc(item)
-                                          }}
-                                          onMouseEnter={(e) => {
-                                             e.stopPropagation()
-                                             setHoveredTooltip({
-                                                item,
-                                                rect: e.currentTarget.getBoundingClientRect(),
-                                             })
-                                          }}
-                                          onMouseLeave={() =>
-                                             setHoveredTooltip(null)
-                                          }
-                                          disabled={
-                                             !canTogglePlan ||
-                                             isTogglingAbcId === item.id
-                                          }
-                                          className={`group/badge inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wide whitespace-nowrap shrink-0 shadow-2xs transition-all select-none ${
-                                             canTogglePlan
-                                                ? 'cursor-pointer hover:ring-2 hover:ring-red-400 hover:opacity-95'
-                                                : 'cursor-default'
-                                          } ${
-                                             item.isPlanned
-                                                ? 'bg-gradient-to-r from-orange-500 to-amber-500 text-white'
-                                                : 'bg-gradient-to-r from-orange-600 via-amber-600 to-red-600 text-white ring-1 ring-orange-400/50 animate-pulse'
-                                          }`}
-                                       >
-                                          <span className='text-xs'>🔥</span>
-                                          <span>
-                                             {(
-                                                item.smartMeta?.badgeText ||
-                                                'Разлетелось'
-                                             ).replace(/^🔥\s*/, '')}
-                                          </span>
-                                          {canTogglePlan && (
-                                             <span
-                                                className='ml-0.5 text-white/70 group-hover/badge:text-white group-hover/badge:bg-red-600/90 rounded-full w-3.5 h-3.5 inline-flex items-center justify-center font-bold text-[9px] transition-all'
-                                                title='Снять маркер'
-                                             >
-                                                ✕
-                                             </span>
-                                          )}
-                                       </button>
-                                    ) : isHitDowntime ? (
-                                       <button
-                                          type='button'
-                                          onClick={(e) => {
-                                             e.stopPropagation()
-                                             setHoveredTooltip(null)
-                                             if (canTogglePlan)
-                                                handleToggleAbc(item)
-                                          }}
-                                          onMouseEnter={(e) => {
-                                             e.stopPropagation()
-                                             const weeksAgo =
-                                                item.smartMeta?.hitWeeksAgo ||
-                                                item.hitWeeksAgo ||
-                                                2
-                                             const weekNum =
-                                                item.smartMeta?.hitWeekNumber ||
-                                                item.hitWeekNumber
-                                             const weeksText = `${weeksAgo} нед.`
-                                             setHoveredTooltip({
-                                                item,
-                                                rect: e.currentTarget.getBoundingClientRect(),
-                                                customContent: {
-                                                   icon: '🔥',
-                                                   title: `Хит спроса: Разлетелось ${weeksAgo} нед. назад`,
-                                                   titleColor:
-                                                      'text-orange-400 font-black',
-                                                   subtitle: weekNum
-                                                      ? `Делали на неделе №${weekNum} (${weeksAgo} нед. назад)`
-                                                      : `Разлетелось ${weeksAgo} нед. назад`,
-                                                   description: `Товар производился ${weekNum ? `на неделе №${weekNum}` : `${weeksAgo} нед. назад`} и был полностью раскуплен (остаток: ${item.stockKg ?? 0} кг), но уже ${weeksText} подряд не включается в производственный план цеха!`,
-                                                   recommendation:
-                                                      'Хит спроса простаивает! Срочно запланируйте выпуск в цехе, чтобы не терять покупателей.',
-                                                   footerHint: canTogglePlan
-                                                      ? 'Нажмите на значок, чтобы снять маркер Хита'
-                                                      : undefined,
-                                                },
-                                             })
-                                          }}
-                                          onMouseLeave={() =>
-                                             setHoveredTooltip(null)
-                                          }
-                                          disabled={
-                                             !canTogglePlan ||
-                                             isTogglingAbcId === item.id
-                                          }
-                                          className={`group/hit inline-flex items-center justify-center w-6 h-6 rounded-full shadow-2xs transition-all select-none ${
-                                             canTogglePlan
-                                                ? 'cursor-pointer hover:scale-110 hover:ring-2 hover:ring-red-400'
-                                                : 'cursor-default'
-                                          } ${
-                                             item.isPlanned
-                                                ? 'bg-gradient-to-r from-orange-500 to-amber-500 text-white'
-                                                : 'bg-gradient-to-r from-orange-600 via-amber-600 to-red-600 text-white ring-1 ring-orange-400/60 animate-pulse'
-                                          }`}
-                                       >
-                                          <span className='text-xs leading-none'>
-                                             🔥
-                                          </span>
-                                       </button>
-                                    ) : item.abcCategory === 'A' ? (
-                                       <button
-                                          type='button'
-                                          onClick={(e) => {
-                                             e.stopPropagation()
-                                             setHoveredTooltip(null)
-                                             if (canTogglePlan)
-                                                handleToggleAbc(item)
-                                          }}
-                                          onMouseEnter={(e) => {
-                                             e.stopPropagation()
-                                             const weeksText =
-                                                item.salesHistoryWeeks
-                                                   ? `${item.salesHistoryWeeks} нед.`
-                                                   : '5 нед.'
-                                             setHoveredTooltip({
-                                                item,
-                                                rect: e.currentTarget.getBoundingClientRect(),
-                                                customContent: {
-                                                   icon: '⚡',
-                                                   title: 'Категория А: Высокий спрос',
-                                                   titleColor:
-                                                      'text-emerald-400 font-black',
-                                                   subtitle: `В среднем ${item.salesPercent || 0}% продаж за последние ${weeksText}`,
-                                                   description: `Товар стабильно входит в число лидеров продаж фабрики (в среднем ${item.salesPercent || 0}% расхода в неделю). Оптовые покупатели заказывают эту позицию регулярно и в больших объемах.`,
-                                                   recommendation:
-                                                      'Обязательно запланируйте выпуск в цехе! Высокий приоритет для оптовиков.',
-                                                   footerHint: canTogglePlan
-                                                      ? 'Нажмите на значок, чтобы снять маркер'
-                                                      : undefined,
-                                                },
-                                             })
-                                          }}
-                                          onMouseLeave={() =>
-                                             setHoveredTooltip(null)
-                                          }
-                                          disabled={
-                                             !canTogglePlan ||
-                                             isTogglingAbcId === item.id
-                                          }
-                                          className={`group/badge inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wide bg-emerald-100 text-emerald-800 border border-emerald-300 shadow-2xs whitespace-nowrap select-none transition-all ${
-                                             canTogglePlan
-                                                ? 'cursor-pointer hover:ring-2 hover:ring-red-400 hover:bg-emerald-200'
-                                                : 'cursor-default'
-                                          }`}
-                                       >
-                                          <span>⚡</span>
-                                          <span>
-                                             A{' '}
-                                             {item.salesPercent
-                                                ? `${item.salesPercent}%`
-                                                : ''}
-                                          </span>
-                                          {canTogglePlan && (
-                                             <span
-                                                className='ml-0.5 text-emerald-700/60 group-hover/badge:text-white group-hover/badge:bg-red-500 rounded-full w-3.5 h-3.5 inline-flex items-center justify-center font-bold text-[9px] transition-all'
-                                                title='Снять маркер'
-                                             >
-                                                ✕
-                                             </span>
-                                          )}
-                                       </button>
-                                    ) : item.abcCategory === 'B' ? (
-                                       <button
-                                          type='button'
-                                          onClick={(e) => {
-                                             e.stopPropagation()
-                                             setHoveredTooltip(null)
-                                             if (canTogglePlan)
-                                                handleToggleAbc(item)
-                                          }}
-                                          onMouseEnter={(e) => {
-                                             e.stopPropagation()
-                                             const weeksText =
-                                                item.salesHistoryWeeks
-                                                   ? `${item.salesHistoryWeeks} нед.`
-                                                   : '5 нед.'
-                                             setHoveredTooltip({
-                                                item,
-                                                rect: e.currentTarget.getBoundingClientRect(),
-                                                customContent: {
-                                                   icon: '👍',
-                                                   title: 'Категория B: Базовый стабильный спрос',
-                                                   titleColor:
-                                                      'text-blue-400 font-black',
-                                                   subtitle: `В среднем ${item.salesPercent || 0}% продаж за последние ${weeksText}`,
-                                                   description: `Товар показывает устойчивые регулярные продажи (в среднем ${item.salesPercent || 0}% расхода в неделю). Является надежной базовой продукцией оптового ассортимента («паровоз» фабрики).`,
-                                                   recommendation:
-                                                      'Рекомендуется регулярно держать в плане цеха для поддержания запаса.',
-                                                   footerHint: canTogglePlan
-                                                      ? 'Нажмите на значок, чтобы снять маркер'
-                                                      : undefined,
-                                                },
-                                             })
-                                          }}
-                                          onMouseLeave={() =>
-                                             setHoveredTooltip(null)
-                                          }
-                                          disabled={
-                                             !canTogglePlan ||
-                                             isTogglingAbcId === item.id
-                                          }
-                                          className={`group/badge inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide bg-blue-100 text-blue-800 border border-blue-200 shadow-2xs whitespace-nowrap select-none transition-all ${
-                                             canTogglePlan
-                                                ? 'cursor-pointer hover:ring-2 hover:ring-red-400 hover:bg-blue-200'
-                                                : 'cursor-default'
-                                          }`}
-                                       >
-                                          <span>👍</span>
-                                          <span>
-                                             B{' '}
-                                             {item.salesPercent
-                                                ? `${item.salesPercent}%`
-                                                : ''}
-                                          </span>
-                                          {canTogglePlan && (
-                                             <span
-                                                className='ml-0.5 text-blue-700/60 group-hover/badge:text-white group-hover/badge:bg-red-500 rounded-full w-3.5 h-3.5 inline-flex items-center justify-center font-bold text-[9px] transition-all'
-                                                title='Снять маркер'
-                                             >
-                                                ✕
-                                             </span>
-                                          )}
-                                       </button>
-                                    ) : item.abcCategory === 'C' ? (
-                                       <button
-                                          type='button'
-                                          onClick={(e) => {
-                                             e.stopPropagation()
-                                             setHoveredTooltip(null)
-                                             if (canTogglePlan)
-                                                handleToggleAbc(item)
-                                          }}
-                                          onMouseEnter={(e) => {
-                                             e.stopPropagation()
-                                             const weeksText =
-                                                item.salesHistoryWeeks
-                                                   ? `${item.salesHistoryWeeks} нед.`
-                                                   : '5 нед.'
-                                             setHoveredTooltip({
-                                                item,
-                                                rect: e.currentTarget.getBoundingClientRect(),
-                                                customContent: {
-                                                   icon: '📦',
-                                                   title: 'Категория C: Умеренный/медленный спрос',
-                                                   titleColor:
-                                                      'text-slate-300 font-black',
-                                                   subtitle: `В среднем ${item.salesPercent || 0}% продаж за последние ${weeksText}`,
-                                                   description: `Позиция продается со средней скоростью ${item.salesPercent || 0}% в неделю. Спрос умеренный или нишевый.`,
-                                                   recommendation:
-                                                      'Производите аккуратно и небольшими партиями под конкретные заявки покупателей.',
-                                                   footerHint: canTogglePlan
-                                                      ? 'Нажмите на значок, чтобы снять маркер'
-                                                      : undefined,
-                                                },
-                                             })
-                                          }}
-                                          onMouseLeave={() =>
-                                             setHoveredTooltip(null)
-                                          }
-                                          disabled={
-                                             !canTogglePlan ||
-                                             isTogglingAbcId === item.id
-                                          }
-                                          className={`group/badge inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-medium uppercase tracking-wide bg-slate-100 text-slate-700 border border-slate-200 shadow-2xs whitespace-nowrap select-none transition-all ${
-                                             canTogglePlan
-                                                ? 'cursor-pointer hover:ring-2 hover:ring-red-400 hover:bg-slate-200'
-                                                : 'cursor-default'
-                                          }`}
-                                       >
-                                          <span>📦</span>
-                                          <span>
-                                             C{' '}
-                                             {item.salesPercent
-                                                ? `${item.salesPercent}%`
-                                                : ''}
-                                          </span>
-                                          {canTogglePlan && (
-                                             <span
-                                                className='ml-0.5 text-slate-500/60 group-hover/badge:text-white group-hover/badge:bg-red-500 rounded-full w-3.5 h-3.5 inline-flex items-center justify-center font-bold text-[9px] transition-all'
-                                                title='Снять маркер'
-                                             >
-                                                ✕
-                                             </span>
-                                          )}
-                                       </button>
-                                    ) : null}
-
-                                    {/* ⚠️ Бейдж Долг с прошлой недели */}
-                                    {isUnfinished && (
-                                       <span
-                                          onMouseEnter={(e) => {
-                                             e.stopPropagation()
-                                             setHoveredTooltip({
-                                                item,
-                                                rect: e.currentTarget.getBoundingClientRect(),
-                                             })
-                                          }}
-                                          onMouseLeave={() =>
-                                             setHoveredTooltip(null)
-                                          }
-                                          className='inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wide bg-rose-100 text-rose-800 border border-rose-300 whitespace-nowrap shrink-0 cursor-help shadow-2xs select-none'
-                                       >
-                                          <span className='text-xs'>
-                                             {item.smartMeta?.icon || '⚠️'}
-                                          </span>
-                                          <span>
-                                             {(
-                                                item.smartMeta?.badgeText || ''
-                                             ).replace(/^[⚠️📦]\s*/, '')}
-                                          </span>
-                                       </span>
+                                          <img
+                                             src={
+                                                getFullImageUrl(item.imageUrl)!
+                                             }
+                                             alt={item.productName}
+                                             className='w-full h-full object-cover group-hover/thumb:scale-110 transition duration-200'
+                                          />
+                                          <div className='absolute inset-0 bg-black/30 opacity-0 group-hover/thumb:opacity-100 flex items-center justify-center transition'>
+                                             <Eye className='w-4 h-4 text-white' />
+                                          </div>
+                                       </div>
                                     )}
 
-                                    {/* ⏳ Бейдж Давно не делали (забытая позиция с градацией цвета) */}
-                                    {isLongTime &&
-                                       (() => {
-                                          const lt = getLongTimeStyles(
-                                             item.smartMeta?.consecutiveWeeks
-                                          )
-                                          return (
+                                    <div className='flex flex-col min-w-0'>
+                                       <div className='flex flex-wrap items-center gap-1.5'>
+                                          <span
+                                             className={`font-bold text-xs sm:text-sm ${
+                                                item.isTrialNovelty
+                                                   ? 'text-purple-950 font-black'
+                                                   : item.isPlanned
+                                                     ? 'text-slate-900'
+                                                     : isHit
+                                                       ? 'text-orange-950 font-black'
+                                                       : 'text-slate-700'
+                                             }`}
+                                          >
+                                             {item.productName}
+                                          </span>
+
+                                          {/* Специальный бейдж для новинки-идеи */}
+                                          {item.isTrialNovelty && (
+                                             <span
+                                                title='Экспериментальная новинка (на пробу)'
+                                                className='inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-xs'
+                                             >
+                                                <FlaskConical className='w-3 h-3 text-purple-200' />
+                                                <span>Новинка идея</span>
+                                             </span>
+                                          )}
+
+                                          {/* Маркеры спроса: Хит или Категория A / B / C */}
+                                          {item.abcManualDisabled ? (
+                                             <button
+                                                type='button'
+                                                onClick={(e) => {
+                                                   e.stopPropagation()
+                                                   if (canTogglePlan)
+                                                      handleToggleAbc(item)
+                                                }}
+                                                disabled={
+                                                   !canTogglePlan ||
+                                                   isTogglingAbcId === item.id
+                                                }
+                                                title={
+                                                   canTogglePlan
+                                                      ? 'Маркер был снят вручную. Нажмите, чтобы вернуть маркер'
+                                                      : 'Маркер снят'
+                                                }
+                                                className='inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold text-slate-400 bg-slate-100 hover:bg-slate-200 border border-slate-300 transition cursor-pointer'
+                                             >
+                                                <span className='line-through'>
+                                                   {item.rawIsHit
+                                                      ? '🔥 Хит'
+                                                      : item.rawAbcCategory
+                                                        ? `Кат. ${item.rawAbcCategory}`
+                                                        : 'Маркер'}
+                                                </span>
+                                                {canTogglePlan && (
+                                                   <span className='text-[9px] text-slate-500 hover:text-slate-700 font-bold'>
+                                                      ↺ вернуть
+                                                   </span>
+                                                )}
+                                             </button>
+                                          ) : isHitFresh ? (
+                                             <button
+                                                type='button'
+                                                onClick={(e) => {
+                                                   e.stopPropagation()
+                                                   setHoveredTooltip(null)
+                                                   if (canTogglePlan)
+                                                      handleToggleAbc(item)
+                                                }}
+                                                onMouseEnter={(e) => {
+                                                   e.stopPropagation()
+                                                   setHoveredTooltip({
+                                                      item,
+                                                      rect: e.currentTarget.getBoundingClientRect(),
+                                                   })
+                                                }}
+                                                onMouseLeave={() =>
+                                                   setHoveredTooltip(null)
+                                                }
+                                                disabled={
+                                                   !canTogglePlan ||
+                                                   isTogglingAbcId === item.id
+                                                }
+                                                className={`group/badge inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wide whitespace-nowrap shrink-0 shadow-2xs transition-all select-none ${
+                                                   canTogglePlan
+                                                      ? 'cursor-pointer hover:ring-2 hover:ring-red-400 hover:opacity-95'
+                                                      : 'cursor-default'
+                                                } ${
+                                                   item.isPlanned
+                                                      ? 'bg-gradient-to-r from-orange-500 to-amber-500 text-white'
+                                                      : 'bg-gradient-to-r from-orange-600 via-amber-600 to-red-600 text-white ring-1 ring-orange-400/50 animate-pulse'
+                                                }`}
+                                             >
+                                                <span className='text-xs'>
+                                                   🔥
+                                                </span>
+                                                <span>
+                                                   {(
+                                                      item.smartMeta
+                                                         ?.badgeText ||
+                                                      'Разлетелось'
+                                                   ).replace(/^🔥\s*/, '')}
+                                                </span>
+                                                {canTogglePlan && (
+                                                   <span
+                                                      className='ml-0.5 text-white/70 group-hover/badge:text-white group-hover/badge:bg-red-600/90 rounded-full w-3.5 h-3.5 inline-flex items-center justify-center font-bold text-[9px] transition-all'
+                                                      title='Снять маркер'
+                                                   >
+                                                      ✕
+                                                   </span>
+                                                )}
+                                             </button>
+                                          ) : isHitDowntime ? (
+                                             <button
+                                                type='button'
+                                                onClick={(e) => {
+                                                   e.stopPropagation()
+                                                   setHoveredTooltip(null)
+                                                   if (canTogglePlan)
+                                                      handleToggleAbc(item)
+                                                }}
+                                                onMouseEnter={(e) => {
+                                                   e.stopPropagation()
+                                                   const weeksAgo =
+                                                      item.smartMeta
+                                                         ?.hitWeeksAgo ||
+                                                      item.hitWeeksAgo ||
+                                                      2
+                                                   const weekNum =
+                                                      item.smartMeta
+                                                         ?.hitWeekNumber ||
+                                                      item.hitWeekNumber
+                                                   const weeksText = `${weeksAgo} нед.`
+                                                   setHoveredTooltip({
+                                                      item,
+                                                      rect: e.currentTarget.getBoundingClientRect(),
+                                                      customContent: {
+                                                         icon: '🔥',
+                                                         title: `Хит спроса: Разлетелось ${weeksAgo} нед. назад`,
+                                                         titleColor:
+                                                            'text-orange-400 font-black',
+                                                         subtitle: weekNum
+                                                            ? `Делали на неделе №${weekNum} (${weeksAgo} нед. назад)`
+                                                            : `Разлетелось ${weeksAgo} нед. назад`,
+                                                         description: `Товар производился ${weekNum ? `на неделе №${weekNum}` : `${weeksAgo} нед. назад`} и был полностью раскуплен (остаток: ${item.stockKg ?? 0} кг), но уже ${weeksText} подряд не включается в производственный план цеха!`,
+                                                         recommendation:
+                                                            'Хит спроса простаивает! Срочно запланируйте выпуск в цехе, чтобы не терять покупателей.',
+                                                         footerHint:
+                                                            canTogglePlan
+                                                               ? 'Нажмите на значок, чтобы снять маркер Хита'
+                                                               : undefined,
+                                                      },
+                                                   })
+                                                }}
+                                                onMouseLeave={() =>
+                                                   setHoveredTooltip(null)
+                                                }
+                                                disabled={
+                                                   !canTogglePlan ||
+                                                   isTogglingAbcId === item.id
+                                                }
+                                                className={`group/hit inline-flex items-center justify-center w-6 h-6 rounded-full shadow-2xs transition-all select-none ${
+                                                   canTogglePlan
+                                                      ? 'cursor-pointer hover:scale-110 hover:ring-2 hover:ring-red-400'
+                                                      : 'cursor-default'
+                                                } ${
+                                                   item.isPlanned
+                                                      ? 'bg-gradient-to-r from-orange-500 to-amber-500 text-white'
+                                                      : 'bg-gradient-to-r from-orange-600 via-amber-600 to-red-600 text-white ring-1 ring-orange-400/60 animate-pulse'
+                                                }`}
+                                             >
+                                                <span className='text-xs leading-none'>
+                                                   🔥
+                                                </span>
+                                             </button>
+                                          ) : item.abcCategory === 'A' ? (
+                                             <button
+                                                type='button'
+                                                onClick={(e) => {
+                                                   e.stopPropagation()
+                                                   setHoveredTooltip(null)
+                                                   if (canTogglePlan)
+                                                      handleToggleAbc(item)
+                                                }}
+                                                onMouseEnter={(e) => {
+                                                   e.stopPropagation()
+                                                   const weeksText =
+                                                      item.salesHistoryWeeks
+                                                         ? `${item.salesHistoryWeeks} нед.`
+                                                         : '5 нед.'
+                                                   setHoveredTooltip({
+                                                      item,
+                                                      rect: e.currentTarget.getBoundingClientRect(),
+                                                      customContent: {
+                                                         icon: '⚡',
+                                                         title: 'Категория А: Высокий спрос',
+                                                         titleColor:
+                                                            'text-emerald-400 font-black',
+                                                         subtitle: `В среднем ${item.salesPercent || 0}% продаж за последние ${weeksText}`,
+                                                         description: `Товар стабильно входит в число лидеров продаж фабрики (в среднем ${item.salesPercent || 0}% расхода в неделю). Оптовые покупатели заказывают эту позицию регулярно и в больших объемах.`,
+                                                         recommendation:
+                                                            'Обязательно запланируйте выпуск в цехе! Высокий приоритет для оптовиков.',
+                                                         footerHint:
+                                                            canTogglePlan
+                                                               ? 'Нажмите на значок, чтобы снять маркер'
+                                                               : undefined,
+                                                      },
+                                                   })
+                                                }}
+                                                onMouseLeave={() =>
+                                                   setHoveredTooltip(null)
+                                                }
+                                                disabled={
+                                                   !canTogglePlan ||
+                                                   isTogglingAbcId === item.id
+                                                }
+                                                className={`group/badge inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wide bg-emerald-100 text-emerald-800 border border-emerald-300 shadow-2xs whitespace-nowrap select-none transition-all ${
+                                                   canTogglePlan
+                                                      ? 'cursor-pointer hover:ring-2 hover:ring-red-400 hover:bg-emerald-200'
+                                                      : 'cursor-default'
+                                                }`}
+                                             >
+                                                <span>⚡</span>
+                                                <span>
+                                                   A{' '}
+                                                   {item.salesPercent
+                                                      ? `${item.salesPercent}%`
+                                                      : ''}
+                                                </span>
+                                                {canTogglePlan && (
+                                                   <span
+                                                      className='ml-0.5 text-emerald-700/60 group-hover/badge:text-white group-hover/badge:bg-red-500 rounded-full w-3.5 h-3.5 inline-flex items-center justify-center font-bold text-[9px] transition-all'
+                                                      title='Снять маркер'
+                                                   >
+                                                      ✕
+                                                   </span>
+                                                )}
+                                             </button>
+                                          ) : item.abcCategory === 'B' ? (
+                                             <button
+                                                type='button'
+                                                onClick={(e) => {
+                                                   e.stopPropagation()
+                                                   setHoveredTooltip(null)
+                                                   if (canTogglePlan)
+                                                      handleToggleAbc(item)
+                                                }}
+                                                onMouseEnter={(e) => {
+                                                   e.stopPropagation()
+                                                   const weeksText =
+                                                      item.salesHistoryWeeks
+                                                         ? `${item.salesHistoryWeeks} нед.`
+                                                         : '5 нед.'
+                                                   setHoveredTooltip({
+                                                      item,
+                                                      rect: e.currentTarget.getBoundingClientRect(),
+                                                      customContent: {
+                                                         icon: '👍',
+                                                         title: 'Категория B: Базовый стабильный спрос',
+                                                         titleColor:
+                                                            'text-blue-400 font-black',
+                                                         subtitle: `В среднем ${item.salesPercent || 0}% продаж за последние ${weeksText}`,
+                                                         description: `Товар показывает устойчивые регулярные продажи (в среднем ${item.salesPercent || 0}% расхода в неделю). Является надежной базовой продукцией оптового ассортимента («паровоз» фабрики).`,
+                                                         recommendation:
+                                                            'Рекомендуется регулярно держать в плане цеха для поддержания запаса.',
+                                                         footerHint:
+                                                            canTogglePlan
+                                                               ? 'Нажмите на значок, чтобы снять маркер'
+                                                               : undefined,
+                                                      },
+                                                   })
+                                                }}
+                                                onMouseLeave={() =>
+                                                   setHoveredTooltip(null)
+                                                }
+                                                disabled={
+                                                   !canTogglePlan ||
+                                                   isTogglingAbcId === item.id
+                                                }
+                                                className={`group/badge inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide bg-blue-100 text-blue-800 border border-blue-200 shadow-2xs whitespace-nowrap select-none transition-all ${
+                                                   canTogglePlan
+                                                      ? 'cursor-pointer hover:ring-2 hover:ring-red-400 hover:bg-blue-200'
+                                                      : 'cursor-default'
+                                                }`}
+                                             >
+                                                <span>👍</span>
+                                                <span>
+                                                   B{' '}
+                                                   {item.salesPercent
+                                                      ? `${item.salesPercent}%`
+                                                      : ''}
+                                                </span>
+                                                {canTogglePlan && (
+                                                   <span
+                                                      className='ml-0.5 text-blue-700/60 group-hover/badge:text-white group-hover/badge:bg-red-500 rounded-full w-3.5 h-3.5 inline-flex items-center justify-center font-bold text-[9px] transition-all'
+                                                      title='Снять маркер'
+                                                   >
+                                                      ✕
+                                                   </span>
+                                                )}
+                                             </button>
+                                          ) : item.abcCategory === 'C' ? (
+                                             <button
+                                                type='button'
+                                                onClick={(e) => {
+                                                   e.stopPropagation()
+                                                   setHoveredTooltip(null)
+                                                   if (canTogglePlan)
+                                                      handleToggleAbc(item)
+                                                }}
+                                                onMouseEnter={(e) => {
+                                                   e.stopPropagation()
+                                                   const weeksText =
+                                                      item.salesHistoryWeeks
+                                                         ? `${item.salesHistoryWeeks} нед.`
+                                                         : '5 нед.'
+                                                   setHoveredTooltip({
+                                                      item,
+                                                      rect: e.currentTarget.getBoundingClientRect(),
+                                                      customContent: {
+                                                         icon: '📦',
+                                                         title: 'Категория C: Умеренный/медленный спрос',
+                                                         titleColor:
+                                                            'text-slate-300 font-black',
+                                                         subtitle: `В среднем ${item.salesPercent || 0}% продаж за последние ${weeksText}`,
+                                                         description: `Позиция продается со средней скоростью ${item.salesPercent || 0}% в неделю. Спрос умеренный или нишевый.`,
+                                                         recommendation:
+                                                            'Производите аккуратно и небольшими партиями под конкретные заявки покупателей.',
+                                                         footerHint:
+                                                            canTogglePlan
+                                                               ? 'Нажмите на значок, чтобы снять маркер'
+                                                               : undefined,
+                                                      },
+                                                   })
+                                                }}
+                                                onMouseLeave={() =>
+                                                   setHoveredTooltip(null)
+                                                }
+                                                disabled={
+                                                   !canTogglePlan ||
+                                                   isTogglingAbcId === item.id
+                                                }
+                                                className={`group/badge inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-medium uppercase tracking-wide bg-slate-100 text-slate-700 border border-slate-200 shadow-2xs whitespace-nowrap select-none transition-all ${
+                                                   canTogglePlan
+                                                      ? 'cursor-pointer hover:ring-2 hover:ring-red-400 hover:bg-slate-200'
+                                                      : 'cursor-default'
+                                                }`}
+                                             >
+                                                <span>📦</span>
+                                                <span>
+                                                   C{' '}
+                                                   {item.salesPercent
+                                                      ? `${item.salesPercent}%`
+                                                      : ''}
+                                                </span>
+                                                {canTogglePlan && (
+                                                   <span
+                                                      className='ml-0.5 text-slate-500/60 group-hover/badge:text-white group-hover/badge:bg-red-500 rounded-full w-3.5 h-3.5 inline-flex items-center justify-center font-bold text-[9px] transition-all'
+                                                      title='Снять маркер'
+                                                   >
+                                                      ✕
+                                                   </span>
+                                                )}
+                                             </button>
+                                          ) : null}
+
+                                          {/* ⚠️ Бейдж Долг с прошлой недели */}
+                                          {isUnfinished && (
                                              <span
                                                 onMouseEnter={(e) => {
                                                    e.stopPropagation()
@@ -1979,123 +2067,169 @@ export default function Checklist({
                                                 onMouseLeave={() =>
                                                    setHoveredTooltip(null)
                                                 }
-                                                className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold whitespace-nowrap shrink-0 cursor-help select-none border transition-colors shadow-2xs ${lt.badge}`}
+                                                className='inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wide bg-rose-100 text-rose-800 border border-rose-300 whitespace-nowrap shrink-0 cursor-help shadow-2xs select-none'
                                              >
                                                 <span className='text-xs'>
-                                                   ⏳
+                                                   {item.smartMeta?.icon ||
+                                                      '⚠️'}
                                                 </span>
                                                 <span>
                                                    {(
                                                       item.smartMeta
                                                          ?.badgeText || ''
-                                                   ).replace(/^⏳\s*/, '')}
+                                                   ).replace(/^[⚠️📦]\s*/, '')}
                                                 </span>
                                              </span>
-                                          )
-                                       })()}
+                                          )}
 
-                                    {/* ❗ Бейдж Не продается / Застой остатка */}
-                                    {item.smartMeta?.tag ===
-                                       'STAGNANT_STOCK' && (
-                                       <span
-                                          onMouseEnter={(e) => {
-                                             e.stopPropagation()
-                                             setHoveredTooltip({
-                                                item,
-                                                rect: e.currentTarget.getBoundingClientRect(),
-                                             })
-                                          }}
-                                          onMouseLeave={() =>
-                                             setHoveredTooltip(null)
-                                          }
-                                          className='inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wide bg-rose-100 text-rose-950 border border-rose-300 shadow-2xs whitespace-nowrap shrink-0 cursor-help select-none hover:bg-rose-200 transition'
-                                       >
-                                          <span className='text-xs font-black text-rose-600 animate-pulse'>
-                                             ❗
-                                          </span>
-                                          <span>
-                                             {(
-                                                item.smartMeta?.badgeText ||
-                                                'Не продается'
-                                             ).replace(/^❗\s*/, '')}
-                                          </span>
-                                       </span>
-                                    )}
+                                          {/* ⏳ Бейдж Давно не делали (забытая позиция с градацией цвета) */}
+                                          {isLongTime &&
+                                             (() => {
+                                                const lt = getLongTimeStyles(
+                                                   item.smartMeta
+                                                      ?.consecutiveWeeks
+                                                )
+                                                return (
+                                                   <span
+                                                      onMouseEnter={(e) => {
+                                                         e.stopPropagation()
+                                                         setHoveredTooltip({
+                                                            item,
+                                                            rect: e.currentTarget.getBoundingClientRect(),
+                                                         })
+                                                      }}
+                                                      onMouseLeave={() =>
+                                                         setHoveredTooltip(null)
+                                                      }
+                                                      className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold whitespace-nowrap shrink-0 cursor-help select-none border transition-colors shadow-2xs ${lt.badge}`}
+                                                   >
+                                                      <span className='text-xs'>
+                                                         ⏳
+                                                      </span>
+                                                      <span>
+                                                         {(
+                                                            item.smartMeta
+                                                               ?.badgeText || ''
+                                                         ).replace(
+                                                            /^⏳\s*/,
+                                                            ''
+                                                         )}
+                                                      </span>
+                                                   </span>
+                                                )
+                                             })()}
 
-                                    {/* 📉 Бейдж Заканчивается */}
-                                    {item.smartMeta?.tag === 'LOW_STOCK' &&
-                                       !item.isPlanned && (
-                                          <span
-                                             onMouseEnter={(e) => {
-                                                e.stopPropagation()
-                                                setHoveredTooltip({
-                                                   item,
-                                                   rect: e.currentTarget.getBoundingClientRect(),
-                                                })
-                                             }}
-                                             onMouseLeave={() =>
-                                                setHoveredTooltip(null)
-                                             }
-                                             className='inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200 whitespace-nowrap shrink-0 cursor-help select-none'
-                                          >
-                                             <span className='text-xs'>📉</span>
-                                             <span>
-                                                {(
-                                                   item.smartMeta?.badgeText ||
-                                                   ''
-                                                ).replace(/^📉\s*/, '')}
+                                          {/* ❗ Бейдж Не продается / Застой остатка */}
+                                          {item.smartMeta?.tag ===
+                                             'STAGNANT_STOCK' && (
+                                             <span
+                                                onMouseEnter={(e) => {
+                                                   e.stopPropagation()
+                                                   setHoveredTooltip({
+                                                      item,
+                                                      rect: e.currentTarget.getBoundingClientRect(),
+                                                   })
+                                                }}
+                                                onMouseLeave={() =>
+                                                   setHoveredTooltip(null)
+                                                }
+                                                className='inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wide bg-rose-100 text-rose-950 border border-rose-300 shadow-2xs whitespace-nowrap shrink-0 cursor-help select-none hover:bg-rose-200 transition'
+                                             >
+                                                <span className='text-xs font-black text-rose-600 animate-pulse'>
+                                                   ❗
+                                                </span>
+                                                <span>
+                                                   {(
+                                                      item.smartMeta
+                                                         ?.badgeText ||
+                                                      'Не продается'
+                                                   ).replace(/^❗\s*/, '')}
+                                                </span>
                                              </span>
-                                          </span>
-                                       )}
+                                          )}
 
-                                    {item.isNew ? (
-                                       isClosed ? (
-                                          <span
-                                             title={
-                                                item.newExpiresAt
-                                                   ? `Новинка активна до ${new Date(item.newExpiresAt).toLocaleDateString('ru-RU')}`
-                                                   : 'Новинка (активна 2 месяца)'
-                                             }
-                                             className='inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-purple-100 text-purple-800 border border-purple-300 whitespace-nowrap shrink-0'
-                                          >
-                                             <Sparkles className='w-3 h-3 text-purple-600' />
-                                             НОВИНКА
-                                          </span>
-                                       ) : (
-                                          <button
-                                             type='button'
-                                             onClick={(e) => {
-                                                e.stopPropagation()
-                                                handleToggleNew(item)
-                                             }}
-                                             disabled={
-                                                isTogglingNewId === item.id
-                                             }
-                                             title={
-                                                item.newExpiresAt
-                                                   ? `Новинка активна до ${new Date(item.newExpiresAt).toLocaleDateString('ru-RU')} (нажмите, чтобы снять досрочно)`
-                                                   : 'Нажмите, чтобы снять статус новинки'
-                                             }
-                                             className='inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-purple-100 hover:bg-purple-200 text-purple-800 border border-purple-300 transition shadow-sm cursor-pointer whitespace-nowrap shrink-0'
-                                          >
-                                             <Sparkles className='w-3 h-3 text-purple-600' />
-                                             НОВИНКА
-                                          </button>
-                                       )
-                                    ) : !isClosed ? (
-                                       <button
-                                          type='button'
-                                          onClick={(e) => {
-                                             e.stopPropagation()
-                                             handleToggleNew(item)
-                                          }}
-                                          disabled={isTogglingNewId === item.id}
-                                          title='Нажмите, чтобы отметить как новинку (будет активна 2 месяца)'
-                                          className='hidden group-hover:inline-flex items-center gap-1 text-[10px] font-medium text-slate-400 hover:text-purple-700 hover:bg-purple-50 px-1.5 py-0.5 rounded border border-dashed border-slate-300 hover:border-purple-300 transition cursor-pointer whitespace-nowrap shrink-0'
-                                       >
-                                          + Новинка
-                                       </button>
-                                    ) : null}
+                                          {/* 📉 Бейдж Заканчивается */}
+                                          {item.smartMeta?.tag ===
+                                             'LOW_STOCK' &&
+                                             !item.isPlanned && (
+                                                <span
+                                                   onMouseEnter={(e) => {
+                                                      e.stopPropagation()
+                                                      setHoveredTooltip({
+                                                         item,
+                                                         rect: e.currentTarget.getBoundingClientRect(),
+                                                      })
+                                                   }}
+                                                   onMouseLeave={() =>
+                                                      setHoveredTooltip(null)
+                                                   }
+                                                   className='inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200 whitespace-nowrap shrink-0 cursor-help select-none'
+                                                >
+                                                   <span className='text-xs'>
+                                                      📉
+                                                   </span>
+                                                   <span>
+                                                      {(
+                                                         item.smartMeta
+                                                            ?.badgeText || ''
+                                                      ).replace(/^📉\s*/, '')}
+                                                   </span>
+                                                </span>
+                                             )}
+
+                                          {item.isNew ? (
+                                             isClosed ? (
+                                                <span
+                                                   title={
+                                                      item.newExpiresAt
+                                                         ? `Новинка активна до ${new Date(item.newExpiresAt).toLocaleDateString('ru-RU')}`
+                                                         : 'Новинка (активна 2 месяца)'
+                                                   }
+                                                   className='inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-purple-100 text-purple-800 border border-purple-300 whitespace-nowrap shrink-0'
+                                                >
+                                                   <Sparkles className='w-3 h-3 text-purple-600' />
+                                                   НОВИНКА
+                                                </span>
+                                             ) : (
+                                                <button
+                                                   type='button'
+                                                   onClick={(e) => {
+                                                      e.stopPropagation()
+                                                      handleToggleNew(item)
+                                                   }}
+                                                   disabled={
+                                                      isTogglingNewId ===
+                                                      item.id
+                                                   }
+                                                   title={
+                                                      item.newExpiresAt
+                                                         ? `Новинка активна до ${new Date(item.newExpiresAt).toLocaleDateString('ru-RU')} (нажмите, чтобы снять досрочно)`
+                                                         : 'Нажмите, чтобы снять статус новинки'
+                                                   }
+                                                   className='inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-purple-100 hover:bg-purple-200 text-purple-800 border border-purple-300 transition shadow-sm cursor-pointer whitespace-nowrap shrink-0'
+                                                >
+                                                   <Sparkles className='w-3 h-3 text-purple-600' />
+                                                   НОВИНКА
+                                                </button>
+                                             )
+                                          ) : !isClosed ? (
+                                             <button
+                                                type='button'
+                                                onClick={(e) => {
+                                                   e.stopPropagation()
+                                                   handleToggleNew(item)
+                                                }}
+                                                disabled={
+                                                   isTogglingNewId === item.id
+                                                }
+                                                title='Нажмите, чтобы отметить как новинку (будет активна 2 месяца)'
+                                                className='hidden group-hover:inline-flex items-center gap-1 text-[10px] font-medium text-slate-400 hover:text-purple-700 hover:bg-purple-50 px-1.5 py-0.5 rounded border border-dashed border-slate-300 hover:border-purple-300 transition cursor-pointer whitespace-nowrap shrink-0'
+                                             >
+                                                + Новинка
+                                             </button>
+                                          ) : null}
+                                       </div>
+                                    </div>
                                  </div>
                               </td>
 
@@ -2125,7 +2259,10 @@ export default function Checklist({
                                              <div
                                                 className='relative inline-block'
                                                 onMouseEnter={(e) => {
-                                                   if (item.resultStatus === 'OTHER') {
+                                                   if (
+                                                      item.resultStatus ===
+                                                      'OTHER'
+                                                   ) {
                                                       e.stopPropagation()
                                                       setHoveredTooltip({
                                                          item,
@@ -2133,8 +2270,10 @@ export default function Checklist({
                                                          customContent: {
                                                             icon: '💬',
                                                             title: 'Причина невыполнения',
-                                                            titleColor: 'text-blue-300 font-black',
-                                                            subtitle: item.productName,
+                                                            titleColor:
+                                                               'text-blue-300 font-black',
+                                                            subtitle:
+                                                               item.productName,
                                                             description:
                                                                item.reasonComment ||
                                                                'Причина пока не указана. Нажмите на значок карандаша рядом, чтобы добавить причину.',
@@ -2142,7 +2281,8 @@ export default function Checklist({
                                                                'Нажмите на кнопку с карандашом ✏️ для изменения текста причины.',
                                                             footerHint:
                                                                'Клик по карандашу для редактирования',
-                                                            headerBadge: 'Другое',
+                                                            headerBadge:
+                                                               'Другое',
                                                             headerBadgeClass:
                                                                'bg-blue-500/20 text-blue-300 border border-blue-500/30',
                                                          },
@@ -2150,164 +2290,223 @@ export default function Checklist({
                                                    }
                                                 }}
                                                 onMouseLeave={() => {
-                                                   if (item.resultStatus === 'OTHER') {
+                                                   if (
+                                                      item.resultStatus ===
+                                                      'OTHER'
+                                                   ) {
                                                       setHoveredTooltip(null)
                                                    }
                                                 }}
                                              >
                                                 <select
-                                                   value={item.resultStatus || 'COMPLETED'}
+                                                   value={
+                                                      item.resultStatus ||
+                                                      'COMPLETED'
+                                                   }
                                                    onChange={(e) => {
                                                       const val = e.target.value
                                                       if (val === 'OTHER') {
                                                          setEditingCommentItem({
                                                             id: item.id,
-                                                            productName: item.productName,
-                                                            comment: item.reasonComment || '',
+                                                            productName:
+                                                               item.productName,
+                                                            comment:
+                                                               item.reasonComment ||
+                                                               '',
                                                          })
-                                                         setReasonInput(item.reasonComment || '')
+                                                         setReasonInput(
+                                                            item.reasonComment ||
+                                                               ''
+                                                         )
                                                       } else {
-                                                         handleUpdateResult(item, val, null)
+                                                         handleUpdateResult(
+                                                            item,
+                                                            val,
+                                                            null
+                                                         )
                                                       }
                                                    }}
                                                    title='Нажмите, чтобы изменить статус чеклиста позиции'
                                                    className={`text-[11px] font-bold rounded-lg px-2 py-1 pr-6 border cursor-pointer appearance-none transition focus:outline-none focus:ring-2 focus:ring-teal-500 shadow-2xs ${
-                                                      item.resultStatus === 'COMPLETED'
+                                                      item.resultStatus ===
+                                                      'COMPLETED'
                                                          ? 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100/80 font-black'
-                                                         : item.resultStatus === 'FORGOTTEN'
+                                                         : item.resultStatus ===
+                                                             'FORGOTTEN'
                                                            ? 'bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100/80 font-black'
-                                                           : item.resultStatus === 'NO_RAW_MATERIAL'
+                                                           : item.resultStatus ===
+                                                               'NO_RAW_MATERIAL'
                                                              ? 'bg-red-50 text-red-800 border-red-300 hover:bg-red-100/80 font-black'
-                                                             : item.resultStatus === 'OTHER'
+                                                             : item.resultStatus ===
+                                                                 'OTHER'
                                                                ? 'bg-blue-50 text-blue-800 border-blue-300 hover:bg-blue-100/80 font-black'
                                                                : 'bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200/80'
                                                    }`}
                                                 >
-                                                   <option value='COMPLETED'>✅ Готово</option>
-                                                   <option value='FORGOTTEN'>⚠️ Забыли</option>
-                                                   <option value='NO_RAW_MATERIAL'>❌ Нет сырья</option>
-                                                   <option value='OTHER'>💬 Другое</option>
+                                                   <option value='COMPLETED'>
+                                                      ✅ Готово
+                                                   </option>
+                                                   <option value='FORGOTTEN'>
+                                                      ⚠️ Забыли
+                                                   </option>
+                                                   <option value='NO_RAW_MATERIAL'>
+                                                      ❌ Нет сырья
+                                                   </option>
+                                                   <option value='OTHER'>
+                                                      💬 Другое
+                                                   </option>
                                                 </select>
                                                 <div className='pointer-events-none absolute inset-y-0 right-0 flex items-center px-1 text-slate-400'>
-                                                   <svg className='w-3 h-3' fill='none' stroke='currentColor' viewBox='0 0 24 24'>
-                                                      <path strokeLinecap='round' strokeLinejoin='round' strokeWidth='2' d='M19 9l-7 7-7-7' />
+                                                   <svg
+                                                      className='w-3 h-3'
+                                                      fill='none'
+                                                      stroke='currentColor'
+                                                      viewBox='0 0 24 24'
+                                                   >
+                                                      <path
+                                                         strokeLinecap='round'
+                                                         strokeLinejoin='round'
+                                                         strokeWidth='2'
+                                                         d='M19 9l-7 7-7-7'
+                                                      />
                                                    </svg>
                                                 </div>
                                              </div>
                                           )}
 
                                           {/* Если статус "Другое", отображаем кнопку причины с попапом при наведении */}
-                                          {item.isPlanned && item.resultStatus === 'OTHER' && (
-                                             <button
-                                                type='button'
-                                                onClick={(e) => {
-                                                   e.stopPropagation()
-                                                   setHoveredTooltip(null)
-                                                   setEditingCommentItem({
-                                                      id: item.id,
-                                                      productName: item.productName,
-                                                      comment: item.reasonComment || '',
-                                                   })
-                                                   setReasonInput(item.reasonComment || '')
-                                                }}
-                                                onMouseEnter={(e) => {
-                                                   e.stopPropagation()
-                                                   setHoveredTooltip({
-                                                      item,
-                                                      rect: e.currentTarget.getBoundingClientRect(),
-                                                      customContent: {
-                                                         icon: '💬',
-                                                         title: 'Причина невыполнения',
-                                                         titleColor: 'text-blue-300 font-black',
-                                                         subtitle: item.productName,
-                                                         description:
+                                          {item.isPlanned &&
+                                             item.resultStatus === 'OTHER' && (
+                                                <button
+                                                   type='button'
+                                                   onClick={(e) => {
+                                                      e.stopPropagation()
+                                                      setHoveredTooltip(null)
+                                                      setEditingCommentItem({
+                                                         id: item.id,
+                                                         productName:
+                                                            item.productName,
+                                                         comment:
                                                             item.reasonComment ||
-                                                            'Причина пока не указана. Нажмите, чтобы отредактировать.',
-                                                         recommendation:
-                                                            'Нажмите на кнопку с карандашом для ввода или изменения причины.',
-                                                         footerHint:
-                                                            'Клик — редактировать причину',
-                                                         headerBadge: 'Другое',
-                                                         headerBadgeClass:
-                                                            'bg-blue-500/20 text-blue-300 border border-blue-500/30',
-                                                      },
-                                                   })
-                                                }}
-                                                onMouseLeave={() => setHoveredTooltip(null)}
-                                                className={`inline-flex items-center gap-1 px-1.5 py-1 rounded-lg text-[10px] font-bold border transition cursor-pointer shrink-0 shadow-2xs ${
-                                                   item.reasonComment
-                                                      ? 'bg-blue-100 text-blue-800 border-blue-300 hover:bg-blue-200'
-                                                      : 'bg-amber-100 text-amber-900 border-amber-300 hover:bg-amber-200 animate-pulse'
-                                                }`}
-                                                title='Нажмите, чтобы отредактировать причину'
-                                             >
-                                                <Pencil className='w-3 h-3 text-blue-700 shrink-0' />
-                                                <span>{item.reasonComment ? 'Причина' : 'Указать'}</span>
-                                             </button>
-                                          )}
-                                       </div>
-                                    ) : (
-                                       item.resultStatus === 'COMPLETED' ? (
-                                          <span className='inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300'>
-                                             <CheckCircle2 className='w-3.5 h-3.5 text-emerald-600 shrink-0' />
-                                             <span>Готово</span>
-                                          </span>
-                                       ) : item.resultStatus === 'FORGOTTEN' ? (
-                                          <span className='inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-amber-100 text-amber-800 border border-amber-300'>
-                                             <AlertTriangle className='w-3.5 h-3.5 text-amber-600 shrink-0' />
-                                             <span>Забыли</span>
-                                          </span>
-                                       ) : item.resultStatus ===
-                                         'NO_RAW_MATERIAL' ? (
-                                          <span className='inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-red-100 text-red-800 border border-red-300'>
-                                             <XCircle className='w-3.5 h-3.5 text-red-600 shrink-0' />
-                                             <span>Нет сырья</span>
-                                          </span>
-                                       ) : item.resultStatus === 'OTHER' ? (
-                                          <span
-                                             onMouseEnter={(e) => {
-                                                e.stopPropagation()
-                                                setHoveredTooltip({
-                                                   item,
-                                                   rect: e.currentTarget.getBoundingClientRect(),
-                                                   customContent: {
-                                                      icon: '💬',
-                                                      title: 'Причина невыполнения',
-                                                      titleColor: 'text-blue-300 font-black',
-                                                      subtitle: item.productName,
-                                                      description:
+                                                            '',
+                                                      })
+                                                      setReasonInput(
                                                          item.reasonComment ||
-                                                         'Причина не была указана',
-                                                      headerBadge: 'Другое',
-                                                      headerBadgeClass:
-                                                         'bg-blue-500/20 text-blue-300 border border-blue-500/30',
-                                                   },
-                                                })
-                                             }}
-                                             onMouseLeave={() => setHoveredTooltip(null)}
-                                             className='inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-blue-100 text-blue-800 border border-blue-300 cursor-help select-none hover:bg-blue-200 transition shadow-2xs'
-                                          >
-                                             <HelpCircle className='w-3.5 h-3.5 text-blue-600 shrink-0' />
-                                             <span>Другое</span>
-                                             {item.reasonComment && (
-                                                <span className='ml-0.5 text-[9px] text-blue-700 bg-blue-200/80 px-1 py-0.2 rounded font-semibold'>
-                                                   инфо 💬
-                                                </span>
+                                                            ''
+                                                      )
+                                                   }}
+                                                   onMouseEnter={(e) => {
+                                                      e.stopPropagation()
+                                                      setHoveredTooltip({
+                                                         item,
+                                                         rect: e.currentTarget.getBoundingClientRect(),
+                                                         customContent: {
+                                                            icon: '💬',
+                                                            title: 'Причина невыполнения',
+                                                            titleColor:
+                                                               'text-blue-300 font-black',
+                                                            subtitle:
+                                                               item.productName,
+                                                            description:
+                                                               item.reasonComment ||
+                                                               'Причина пока не указана. Нажмите, чтобы отредактировать.',
+                                                            recommendation:
+                                                               'Нажмите на кнопку с карандашом для ввода или изменения причины.',
+                                                            footerHint:
+                                                               'Клик — редактировать причину',
+                                                            headerBadge:
+                                                               'Другое',
+                                                            headerBadgeClass:
+                                                               'bg-blue-500/20 text-blue-300 border border-blue-500/30',
+                                                         },
+                                                      })
+                                                   }}
+                                                   onMouseLeave={() =>
+                                                      setHoveredTooltip(null)
+                                                   }
+                                                   className={`inline-flex items-center gap-1 px-1.5 py-1 rounded-lg text-[10px] font-bold border transition cursor-pointer shrink-0 shadow-2xs ${
+                                                      item.reasonComment
+                                                         ? 'bg-blue-100 text-blue-800 border-blue-300 hover:bg-blue-200'
+                                                         : 'bg-amber-100 text-amber-900 border-amber-300 hover:bg-amber-200 animate-pulse'
+                                                   }`}
+                                                   title='Нажмите, чтобы отредактировать причину'
+                                                >
+                                                   <Pencil className='w-3 h-3 text-blue-700 shrink-0' />
+                                                   <span>
+                                                      {item.reasonComment
+                                                         ? 'Причина'
+                                                         : 'Указать'}
+                                                   </span>
+                                                </button>
                                              )}
-                                          </span>
-                                       ) : (
-                                          <span className='inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-slate-100 text-slate-600'>
-                                             В плане
-                                          </span>
-                                       )
+                                       </div>
+                                    ) : item.resultStatus === 'COMPLETED' ? (
+                                       <span className='inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300'>
+                                          <CheckCircle2 className='w-3.5 h-3.5 text-emerald-600 shrink-0' />
+                                          <span>Готово</span>
+                                       </span>
+                                    ) : item.resultStatus === 'FORGOTTEN' ? (
+                                       <span className='inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-amber-100 text-amber-800 border border-amber-300'>
+                                          <AlertTriangle className='w-3.5 h-3.5 text-amber-600 shrink-0' />
+                                          <span>Забыли</span>
+                                       </span>
+                                    ) : item.resultStatus ===
+                                      'NO_RAW_MATERIAL' ? (
+                                       <span className='inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-red-100 text-red-800 border border-red-300'>
+                                          <XCircle className='w-3.5 h-3.5 text-red-600 shrink-0' />
+                                          <span>Нет сырья</span>
+                                       </span>
+                                    ) : item.resultStatus === 'OTHER' ? (
+                                       <span
+                                          onMouseEnter={(e) => {
+                                             e.stopPropagation()
+                                             setHoveredTooltip({
+                                                item,
+                                                rect: e.currentTarget.getBoundingClientRect(),
+                                                customContent: {
+                                                   icon: '💬',
+                                                   title: 'Причина невыполнения',
+                                                   titleColor:
+                                                      'text-blue-300 font-black',
+                                                   subtitle: item.productName,
+                                                   description:
+                                                      item.reasonComment ||
+                                                      'Причина не была указана',
+                                                   headerBadge: 'Другое',
+                                                   headerBadgeClass:
+                                                      'bg-blue-500/20 text-blue-300 border border-blue-500/30',
+                                                },
+                                             })
+                                          }}
+                                          onMouseLeave={() =>
+                                             setHoveredTooltip(null)
+                                          }
+                                          className='inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-blue-100 text-blue-800 border border-blue-300 cursor-help select-none hover:bg-blue-200 transition shadow-2xs'
+                                       >
+                                          <HelpCircle className='w-3.5 h-3.5 text-blue-600 shrink-0' />
+                                          <span>Другое</span>
+                                          {item.reasonComment && (
+                                             <span className='ml-0.5 text-[9px] text-blue-700 bg-blue-200/80 px-1 py-0.2 rounded font-semibold'>
+                                                инфо 💬
+                                             </span>
+                                          )}
+                                       </span>
+                                    ) : (
+                                       <span className='inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-slate-100 text-slate-600'>
+                                          В плане
+                                       </span>
                                     )}
                                  </td>
                               )}
 
                               {/* Остаток */}
                               <td className='px-2 py-3 text-center whitespace-nowrap'>
-                                 {item.stockKg !== null &&
-                                 item.stockKg !== undefined ? (
+                                 {item.isTrialNovelty ? (
+                                    <span className='inline-block whitespace-nowrap font-extrabold px-2 py-0.5 rounded text-[10px] uppercase bg-purple-100 text-purple-900 border border-purple-200'>
+                                       🧪 Вернуть
+                                    </span>
+                                 ) : item.stockKg !== null &&
+                                   item.stockKg !== undefined ? (
                                     <span
                                        className={`inline-block whitespace-nowrap font-semibold px-2.5 py-0.5 rounded ${getStockBadgeClass(
                                           item.stockKg
@@ -2322,9 +2521,18 @@ export default function Checklist({
 
                               {/* Цена */}
                               <td className='px-2 py-3 text-right font-bold text-slate-800 whitespace-nowrap'>
-                                 {item.price
-                                    ? `${item.price.toLocaleString('ru-RU')} ₽`
-                                    : '—'}
+                                 {item.isTrialNovelty ? (
+                                    <span
+                                       className='text-slate-400 text-xs italic font-medium'
+                                       title='Экспериментальная новинка цеха — не выгружается в прайс-лист 1С'
+                                    >
+                                       Не в прайсе
+                                    </span>
+                                 ) : item.price ? (
+                                    `${item.price.toLocaleString('ru-RU')} ₽`
+                                 ) : (
+                                    '—'
+                                 )}
                               </td>
 
                               {/* Дата добавления */}
@@ -2582,11 +2790,7 @@ export default function Checklist({
                                  (i) => i.id === editingCommentItem.id
                               )
                               if (item) {
-                                 handleUpdateResult(
-                                    item,
-                                    'OTHER',
-                                    reasonInput
-                                 )
+                                 handleUpdateResult(item, 'OTHER', reasonInput)
                                  setEditingCommentItem(null)
                               }
                            }}
@@ -2605,24 +2809,63 @@ export default function Checklist({
                </div>
             </div>
          )}
-          {/* ═══ Модальное окно Корзины ═══ */}
-          <TrashModal
-             isOpen={isTrashOpen}
-             onClose={() => setIsTrashOpen(false)}
-             items={trashItems}
-             weekId={weekId}
-             canTogglePlan={canTogglePlan}
-             onItemRestored={(restoredItem) => {
-                onItemUpdated(restoredItem)
-             }}
-             onAllRestored={() => {
-                onBulkUpdated()
-                setIsTrashOpen(false)
-             }}
-             onItemDeletedPermanently={(id) => {
-                onItemDeleted?.(id)
-             }}
-          />
-       </div>
-    )
- }
+         {/* ═══ Модальное окно Корзины ═══ */}
+         <TrashModal
+            isOpen={isTrashOpen}
+            onClose={() => setIsTrashOpen(false)}
+            items={trashItems}
+            weekId={weekId}
+            canTogglePlan={canTogglePlan}
+            onItemRestored={(restoredItem) => {
+               onItemUpdated(restoredItem)
+            }}
+            onAllRestored={() => {
+               onBulkUpdated()
+               setIsTrashOpen(false)
+            }}
+            onItemDeletedPermanently={(id) => {
+               onItemDeleted?.(id)
+            }}
+         />
+
+         {/* ═══ Модальное окно просмотра фото новинки-идеи ═══ */}
+         {previewImageModal && (
+            <div
+               onClick={() => setPreviewImageModal(null)}
+               className='fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-xs flex items-center justify-center p-4 cursor-zoom-out'
+            >
+               <div
+                  onClick={(e) => e.stopPropagation()}
+                  className='bg-white rounded-3xl overflow-hidden shadow-2xl border border-slate-200 max-w-lg w-full p-5 space-y-4 animate-in fade-in zoom-in-95 cursor-default'
+               >
+                  <div className='flex items-center justify-between pb-2 border-b border-slate-100'>
+                     <div className='flex items-center gap-2'>
+                        <span className='inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-xs'>
+                           <FlaskConical className='w-3 h-3 text-purple-200' />
+                           Новинка идея
+                        </span>
+                        <h4 className='font-extrabold text-slate-900 text-sm'>
+                           {previewImageModal.title}
+                        </h4>
+                     </div>
+                     <button
+                        type='button'
+                        onClick={() => setPreviewImageModal(null)}
+                        className='p-1.5 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-pointer'
+                     >
+                        <X className='w-4 h-4' />
+                     </button>
+                  </div>
+                  <div className='rounded-2xl overflow-hidden bg-slate-100 aspect-[4/3] relative'>
+                     <img
+                        src={previewImageModal.url}
+                        alt={previewImageModal.title}
+                        className='w-full h-full object-cover'
+                     />
+                  </div>
+               </div>
+            </div>
+         )}
+      </div>
+   )
+}

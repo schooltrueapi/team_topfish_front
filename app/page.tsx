@@ -16,7 +16,8 @@ import UploadModal from '@/components/UploadModal';
 import UploadDiffModal, { UploadDiffData } from '@/components/UploadDiffModal';
 import WeekHistoryModal, { WeekHistoryItem } from '@/components/WeekHistoryModal';
 import PlanSnapshotPanel from '@/components/PlanSnapshotPanel';
-import { RotateCcw } from 'lucide-react';
+import TrialNoveltiesTab from '@/components/TrialNoveltiesTab';
+import { RotateCcw, FlaskConical, ClipboardList, ArrowRight } from 'lucide-react';
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -27,6 +28,10 @@ export default function DashboardPage() {
   const [needsReview, setNeedsReview] = useState(false);
   const [reviewWeek, setReviewWeek] = useState<any>(null);
   const [currentFilter, setCurrentFilter] = useState('all');
+
+  // Главные вкладки страницы: Основной план vs Вторые новинки
+  const [activeTab, setActiveTab] = useState<'main_plan' | 'trial_novelties'>('main_plan');
+  const [trialStats, setTrialStats] = useState({ total: 0, inTrial: 0, ideas: 0 });
 
   // Архив производственных недель
   const [weeksHistory, setWeeksHistory] = useState<WeekHistoryItem[]>([]);
@@ -104,6 +109,21 @@ export default function DashboardPage() {
     }
   };
 
+  // Загрузка статистики вторых новинок
+  const fetchTrialStats = async () => {
+    try {
+      const res = await api.get('/api/trial-novelties');
+      const loaded = res.data?.items || [];
+      setTrialStats({
+        total: loaded.length,
+        inTrial: loaded.filter((i: any) => i.status === 'IN_TRIAL').length,
+        ideas: loaded.filter((i: any) => i.status === 'IDEA').length,
+      });
+    } catch (e) {
+      console.warn('Failed to load trial stats:', e);
+    }
+  };
+
   // Загрузка данных текущей недели (isBackground: без мерцания экрана)
   const fetchCurrentWeek = async (isBackground = false) => {
     try {
@@ -112,6 +132,7 @@ export default function DashboardPage() {
       }
       const res = await api.get('/api/weeks/current');
       fetchWeeksHistory();
+      fetchTrialStats();
       if (res.data.needsReview) {
         setNeedsReview(true);
         setReviewWeek(res.data.reviewWeek);
@@ -124,7 +145,35 @@ export default function DashboardPage() {
 
         // Если сейчас просматривается текущая неделя, обновляем её позиции
         if (!selectedWeekId || selectedWeekId === res.data.currentWeek?.id) {
-          const newItems: PlanItem[] = res.data.currentWeek?.items || [];
+          const regularItems: PlanItem[] = res.data.currentWeek?.items || [];
+
+          // Загружаем новинки в отработке на эту неделю, чтобы отобразить их прямо в основном плане чеклиста
+          let inTrialItems: PlanItem[] = [];
+          try {
+            const trialRes = await api.get('/api/trial-novelties', {
+              params: { status: 'IN_TRIAL', weekId: res.data.currentWeek?.id },
+            });
+            const trialNovelties = trialRes.data?.items || [];
+            inTrialItems = trialNovelties.map((tn: any) => ({
+              id: `trial_${tn.id}`,
+              trialNoveltyId: tn.id,
+              isTrialNovelty: true,
+              productName: tn.name,
+              category: tn.category || 'Новинки (отработка)',
+              price: null,
+              stockKg: null,
+              isNew: true,
+              isPlanned: true,
+              imageUrl: tn.imageUrl,
+              resultStatus: tn.resultStatus,
+              reasonComment: tn.resultComment,
+              createdBy: tn.createdBy,
+              createdAt: tn.plannedAt || tn.createdAt,
+              updatedAt: tn.updatedAt,
+            }));
+          } catch (e) {}
+
+          const newItems: PlanItem[] = [...inTrialItems, ...regularItems];
           if (isBackground) {
             setItems((prev) => {
               if (prev.length !== newItems.length) {
@@ -436,69 +485,171 @@ export default function DashboardPage() {
       />
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6">
-        {/* Если просматриваем архивную закрытую неделю — выводим заключение недели */}
-        {isViewingArchive && selectedWeekData?.stats ? (
-          <WeekConclusionBanner
-            week={displayWeek}
-            stats={selectedWeekData.stats}
-            closeAuditLog={selectedWeekData.closeAuditLog}
-            auditLogs={selectedWeekData.auditLogs || []}
-            canEditArchive={canEditArchive}
-            currentFilter={currentFilter}
-            onFilterChange={setCurrentFilter}
-            onReturnToCurrent={() => handleSelectWeek(currentWeek.id)}
-            currentWeekNumber={currentWeek?.weekNumber}
+        {/* Главный переключатель вкладок: Основной план производства vs Вторые новинки (Отработка) */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6 bg-white p-2 rounded-2xl border border-slate-200 shadow-xs">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <button
+              type="button"
+              onClick={() => setActiveTab('main_plan')}
+              className={`px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all flex items-center gap-2 cursor-pointer ${
+                activeTab === 'main_plan'
+                  ? 'bg-slate-900 text-white shadow-md shadow-slate-900/10 ring-1 ring-slate-800'
+                  : 'bg-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+              }`}
+            >
+              <ClipboardList className="w-4 h-4 text-teal-400" />
+              <span>Основной план производства</span>
+              <span
+                className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
+                  activeTab === 'main_plan'
+                    ? 'bg-slate-800 text-teal-300'
+                    : 'bg-slate-100 text-slate-600'
+                }`}
+              >
+                {plannedCount} поз.
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveTab('trial_novelties')}
+              className={`px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all flex items-center gap-2 cursor-pointer ${
+                activeTab === 'trial_novelties'
+                  ? 'bg-gradient-to-r from-teal-600 to-indigo-600 text-white shadow-md shadow-teal-600/20'
+                  : 'bg-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+              }`}
+            >
+              <FlaskConical className="w-4 h-4 text-teal-300" />
+              <span>Вторые новинки (Отработка)</span>
+              {trialStats.inTrial > 0 ? (
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-500 text-white shadow-xs animate-pulse">
+                  🔥 {trialStats.inTrial} в плане
+                </span>
+              ) : trialStats.total > 0 ? (
+                <span
+                  className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                    activeTab === 'trial_novelties'
+                      ? 'bg-teal-500/30 text-teal-100'
+                      : 'bg-teal-50 text-teal-700'
+                  }`}
+                >
+                  {trialStats.total}
+                </span>
+              ) : null}
+            </button>
+          </div>
+
+          {/* Быстрая подсказка / статус */}
+          <div className="text-right text-[11px] text-slate-400 font-medium px-2 hidden sm:block">
+            {activeTab === 'main_plan'
+              ? 'Чеклист 1С • Остатки и распределение'
+              : 'Внутренний банк идей • Не попадает в прайс клиентов'}
+          </div>
+        </div>
+
+        {/* Контент активной вкладки */}
+        {activeTab === 'trial_novelties' ? (
+          <TrialNoveltiesTab
+            currentWeek={displayWeek}
+            onStatsChange={setTrialStats}
+            onPlanChanged={() => fetchCurrentWeek(true)}
           />
         ) : (
-          /* Обычные карточки внимания и быстрые фильтры для рабочей недели */
-          <AttentionBanner
-            totalItems={activeItems.length}
-            plannedCount={plannedCount}
-            noveltiesCount={noveltiesCount}
-            outOfStockCount={outOfStockCount}
-            hitsCount={hitsCount}
-            longTimeCount={longTimeCount}
-            unfinishedCount={unfinishedCount}
-            currentFilter={currentFilter}
-            onFilterChange={setCurrentFilter}
-          />
-        )}
+          <>
+            {/* Информационный баннер в основном плане, если есть новинки в отработке */}
+            {trialStats.inTrial > 0 && !isViewingArchive && (
+              <div
+                onClick={() => setActiveTab('trial_novelties')}
+                className="mb-4 p-3.5 rounded-2xl bg-gradient-to-r from-amber-50 via-orange-50 to-amber-50 border border-amber-300/80 shadow-xs flex items-center justify-between gap-3 cursor-pointer hover:border-amber-400 hover:shadow-md transition"
+              >
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-xl bg-amber-500 text-white flex items-center justify-center font-bold shrink-0 shadow-xs">
+                    <FlaskConical className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <span className="font-extrabold text-amber-950 text-xs sm:text-sm block">
+                      На этой неделе в отработке {trialStats.inTrial} экспериментальных новинок на пробу!
+                    </span>
+                    <span className="text-amber-800/80 text-[11px] block">
+                      Они хранятся отдельно, не меняют складские остатки 1С и не уходят клиентам в прайс.
+                    </span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="px-3 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold shrink-0 transition flex items-center gap-1 shadow-2xs cursor-pointer"
+                >
+                  <span>Открыть новинки</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
 
-        {/* Панель "План vs Факт" — показываем только для текущей рабочей недели после утверждения плана */}
-        {!isViewingArchive && !isInitialLoading && displayWeek?.id && (
-          <div className="mt-4">
-            <PlanSnapshotPanel
-              weekId={displayWeek.id}
-              weekStatus={displayWeek.status || 'PLANNING'}
-              isArchive={false}
-              refreshTrigger={snapshotRefreshKey}
-              currentItems={activeItems}
-            />
-          </div>
-        )}
+            {/* Если просматриваем архивную закрытую неделю — выводим заключение недели */}
+            {isViewingArchive && selectedWeekData?.stats ? (
+              <WeekConclusionBanner
+                week={displayWeek}
+                stats={selectedWeekData.stats}
+                closeAuditLog={selectedWeekData.closeAuditLog}
+                auditLogs={selectedWeekData.auditLogs || []}
+                canEditArchive={canEditArchive}
+                currentFilter={currentFilter}
+                onFilterChange={setCurrentFilter}
+                onReturnToCurrent={() => handleSelectWeek(currentWeek.id)}
+                currentWeekNumber={currentWeek?.weekNumber}
+              />
+            ) : (
+              /* Обычные карточки внимания и быстрые фильтры для рабочей недели */
+              <AttentionBanner
+                totalItems={activeItems.length}
+                plannedCount={plannedCount}
+                noveltiesCount={noveltiesCount}
+                outOfStockCount={outOfStockCount}
+                hitsCount={hitsCount}
+                longTimeCount={longTimeCount}
+                unfinishedCount={unfinishedCount}
+                currentFilter={currentFilter}
+                onFilterChange={setCurrentFilter}
+              />
+            )}
 
-        {/* Чеклист */}
-        {isInitialLoading ? (
-          <div className="p-12 text-center text-slate-400 text-sm">
-            Загрузка производственного плана...
-          </div>
-        ) : (
-          <Checklist
-            weekId={displayWeek?.id || ''}
-            weekStatus={displayWeek?.status || 'PLANNING'}
-            weekNumber={displayWeek?.weekNumber || 1}
-            items={items}
-            currentFilter={currentFilter}
-            autoSyncPrice={autoSyncPrice}
-            isArchive={isViewingArchive}
-            onToggleAutoSync={() => handleToggleAutoSync()}
-            onFilterChange={setCurrentFilter}
-            onItemUpdated={handleItemUpdated}
-            onItemDeleted={handleItemDeleted}
-            onBulkUpdated={() => { fetchCurrentWeek(); setSnapshotRefreshKey((k) => k + 1); }}
-            onPlanConfirmed={() => { fetchCurrentWeek(); setSnapshotRefreshKey((k) => k + 1); }}
-            onOpenUpload={() => setIsUploadOpen(true)}
-          />
+            {/* Панель "План vs Факт" — показываем только для текущей рабочей недели после утверждения плана */}
+            {!isViewingArchive && !isInitialLoading && displayWeek?.id && (
+              <div className="mt-4">
+                <PlanSnapshotPanel
+                  weekId={displayWeek.id}
+                  weekStatus={displayWeek.status || 'PLANNING'}
+                  isArchive={false}
+                  refreshTrigger={snapshotRefreshKey}
+                  currentItems={activeItems}
+                />
+              </div>
+            )}
+
+            {/* Чеклист */}
+            {isInitialLoading ? (
+              <div className="p-12 text-center text-slate-400 text-sm">
+                Загрузка производственного плана...
+              </div>
+            ) : (
+              <Checklist
+                weekId={displayWeek?.id || ''}
+                weekStatus={displayWeek?.status || 'PLANNING'}
+                weekNumber={displayWeek?.weekNumber || 1}
+                items={items}
+                currentFilter={currentFilter}
+                autoSyncPrice={autoSyncPrice}
+                isArchive={isViewingArchive}
+                onToggleAutoSync={() => handleToggleAutoSync()}
+                onFilterChange={setCurrentFilter}
+                onItemUpdated={handleItemUpdated}
+                onItemDeleted={handleItemDeleted}
+                onBulkUpdated={() => { fetchCurrentWeek(); setSnapshotRefreshKey((k) => k + 1); }}
+                onPlanConfirmed={() => { fetchCurrentWeek(); setSnapshotRefreshKey((k) => k + 1); }}
+                onOpenUpload={() => setIsUploadOpen(true)}
+              />
+            )}
+          </>
         )}
       </main>
 
