@@ -20,12 +20,14 @@ import WeekHistoryModal, {
 import PlanSnapshotPanel from '@/components/PlanSnapshotPanel'
 import TrialNoveltiesTab from '@/components/TrialNoveltiesTab'
 import ClientsCallingTab from '@/components/ClientsCallingTab'
+import FinancialAnalysisTab from '@/components/FinancialAnalysisTab'
 import {
    RotateCcw,
    FlaskConical,
    ClipboardList,
    ArrowRight,
    PhoneCall,
+   Wallet,
 } from 'lucide-react'
 
 export default function DashboardPage() {
@@ -38,9 +40,9 @@ export default function DashboardPage() {
    const [reviewWeek, setReviewWeek] = useState<any>(null)
    const [currentFilter, setCurrentFilter] = useState('all')
 
-   // Главные вкладки страницы: Основной план vs Вторые новинки vs База обзвона
+   // Главные вкладки страницы: Основной план vs Вторые новинки vs База обзвона vs Анализ финансов
    const [activeTab, setActiveTab] = useState<
-      'main_plan' | 'trial_novelties' | 'clients'
+      'main_plan' | 'trial_novelties' | 'clients' | 'finance'
    >('main_plan')
    const [clientsCount, setClientsCount] = useState<number>(0)
    const [trialStats, setTrialStats] = useState({
@@ -644,6 +646,30 @@ export default function DashboardPage() {
                         )}
                      </button>
                   )}
+
+                  {hasPermission('FULL_ACCESS') && (
+                     <button
+                        type='button'
+                        onClick={() => setActiveTab('finance')}
+                        className={`px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all flex items-center gap-2 cursor-pointer ${
+                           activeTab === 'finance'
+                              ? 'bg-gradient-to-r from-emerald-600 to-teal-700 text-white shadow-md shadow-emerald-600/25 ring-1 ring-emerald-500/50'
+                              : 'bg-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                        }`}
+                     >
+                        <Wallet className='w-4 h-4 text-emerald-300' />
+                        <span>Анализ финансов</span>
+                        <span
+                           className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                              activeTab === 'finance'
+                                 ? 'bg-white/20 text-white'
+                                 : 'bg-emerald-50 text-emerald-700'
+                           }`}
+                        >
+                           Склад ₽
+                        </span>
+                     </button>
+                  )}
                </div>
 
                {/* Быстрая подсказка / статус */}
@@ -652,12 +678,16 @@ export default function DashboardPage() {
                      ? 'Чеклист 1С • Остатки и распределение'
                      : activeTab === 'trial_novelties'
                      ? 'Внутренний банк идей • Не попадает в прайс клиентов'
+                     : activeTab === 'finance'
+                     ? 'Финансовая оценка складских остатков • Оптовый прайс'
                      : 'База клиентов и контрагентов • Обзвон и контакты'}
                </div>
             </div>
 
             {/* Контент активной вкладки */}
-            {activeTab === 'clients' && hasPermission('MANAGE_CLIENTS') ? (
+            {activeTab === 'finance' && hasPermission('FULL_ACCESS') ? (
+               <FinancialAnalysisTab currentWeek={displayWeek} />
+            ) : activeTab === 'clients' && hasPermission('MANAGE_CLIENTS') ? (
                <ClientsCallingTab onCountChange={setClientsCount} />
             ) : activeTab === 'trial_novelties' ? (
                <TrialNoveltiesTab
