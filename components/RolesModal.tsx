@@ -16,6 +16,7 @@ import {
   CheckSquare,
   UploadCloud,
   Lock,
+  PhoneCall,
 } from 'lucide-react';
 
 interface RolesModalProps {
@@ -44,6 +45,13 @@ const PERMISSION_CONFIG = [
     description: 'Отметка товаров в производственный план недели',
     badgeClass: 'bg-blue-100 text-blue-800 border-blue-200',
     icon: CheckSquare,
+  },
+  {
+    id: 'MANAGE_CLIENTS',
+    name: 'Работа с клиентской базой',
+    description: 'Просмотр, редактирование и добавление клиентов для обзвона',
+    badgeClass: 'bg-emerald-100 text-emerald-800 border-emerald-200',
+    icon: PhoneCall,
   },
 ];
 
@@ -96,7 +104,7 @@ export default function RolesModal({ isOpen, onClose }: RolesModalProps) {
       if (rolePermissions.includes('FULL_ACCESS')) {
         setRolePermissions([]);
       } else {
-        setRolePermissions(['FULL_ACCESS', 'UPLOAD_1C', 'TOGGLE_PLAN']);
+        setRolePermissions(PERMISSION_CONFIG.map((p) => p.id));
       }
       return;
     }
@@ -117,7 +125,7 @@ export default function RolesModal({ isOpen, onClose }: RolesModalProps) {
       if (editPermissions.includes('FULL_ACCESS')) {
         setEditPermissions([]);
       } else {
-        setEditPermissions(['FULL_ACCESS', 'UPLOAD_1C', 'TOGGLE_PLAN']);
+        setEditPermissions(PERMISSION_CONFIG.map((p) => p.id));
       }
       return;
     }

@@ -1669,7 +1669,10 @@ export default function Checklist({
                                                 item.imageUrl
                                              )
                                              if (fullUrl) {
-                                                setPreviewImageModal({ url: fullUrl, title: item.productName })
+                                                setPreviewImageModal({
+                                                   url: fullUrl,
+                                                   title: item.productName,
+                                                })
                                              }
                                           }}
                                           className='relative w-9 h-9 rounded-xl overflow-hidden border border-purple-300 shadow-2xs shrink-0 cursor-pointer hover:ring-2 hover:ring-purple-500 transition group/thumb select-none'
