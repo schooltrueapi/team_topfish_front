@@ -21,6 +21,7 @@ import PlanSnapshotPanel from '@/components/PlanSnapshotPanel'
 import TrialNoveltiesTab from '@/components/TrialNoveltiesTab'
 import ClientsCallingTab from '@/components/ClientsCallingTab'
 import FinancialAnalysisTab from '@/components/FinancialAnalysisTab'
+import TechCardsTab from '@/components/TechCardsTab'
 import {
    RotateCcw,
    FlaskConical,
@@ -28,6 +29,7 @@ import {
    ArrowRight,
    PhoneCall,
    Wallet,
+   ChefHat,
 } from 'lucide-react'
 
 export default function DashboardPage() {
@@ -40,9 +42,9 @@ export default function DashboardPage() {
    const [reviewWeek, setReviewWeek] = useState<any>(null)
    const [currentFilter, setCurrentFilter] = useState('all')
 
-   // Главные вкладки страницы: Основной план vs Вторые новинки vs База обзвона vs Анализ финансов
+   // Главные вкладки страницы: Основной план vs Вторые новинки vs База обзвона vs Анализ финансов vs Тех. карты
    const [activeTab, setActiveTab] = useState<
-      'main_plan' | 'trial_novelties' | 'clients' | 'finance'
+      'main_plan' | 'trial_novelties' | 'clients' | 'finance' | 'tech_cards'
    >('main_plan')
    const [clientsCount, setClientsCount] = useState<number>(0)
    const [trialStats, setTrialStats] = useState({
@@ -670,6 +672,29 @@ export default function DashboardPage() {
                         </span>
                      </button>
                   )}
+
+                  {/* Вкладка «Тех. карты & Производство» */}
+                  <button
+                     type='button'
+                     onClick={() => setActiveTab('tech_cards')}
+                     className={`px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all flex items-center gap-2 cursor-pointer ${
+                        activeTab === 'tech_cards'
+                           ? 'bg-gradient-to-r from-teal-700 via-slate-900 to-indigo-950 text-white shadow-md shadow-slate-900/25 ring-1 ring-teal-500/50'
+                           : 'bg-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                     }`}
+                  >
+                     <ChefHat className='w-4 h-4 text-teal-300' />
+                     <span>Тех. карты</span>
+                     <span
+                        className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                           activeTab === 'tech_cards'
+                              ? 'bg-white/20 text-white'
+                              : 'bg-teal-50 text-teal-700'
+                        }`}
+                     >
+                        Цех
+                     </span>
+                  </button>
                </div>
 
                {/* Быстрая подсказка / статус */}
@@ -680,6 +705,8 @@ export default function DashboardPage() {
                      ? 'Внутренний банк идей • Не попадает в прайс клиентов'
                      : activeTab === 'finance'
                      ? 'Финансовая оценка складских остатков • Оптовый прайс'
+                     : activeTab === 'tech_cards'
+                     ? 'Технологические карты • Справочник ингредиентов, нормы и контроль цеха'
                      : 'База клиентов и контрагентов • Обзвон и контакты'}
                </div>
             </div>
@@ -695,6 +722,8 @@ export default function DashboardPage() {
                   onStatsChange={setTrialStats}
                   onPlanChanged={() => fetchCurrentWeek(true)}
                />
+            ) : activeTab === 'tech_cards' ? (
+               <TechCardsTab />
             ) : (
                <>
                   {/* Информационный баннер в основном плане, если есть новинки в отработке */}

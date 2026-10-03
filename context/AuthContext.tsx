@@ -79,8 +79,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const hasPermission = (permission: string): boolean => {
     if (!user) return false;
-    // Руководитель всегда имеет полный доступ ко всем функциям
-    if (user.role === 'Руководитель') return true;
+    // Руководитель и Администратор всегда имеют полный доступ ко всем функциям
+    if (user.role === 'Руководитель' || user.role === 'Администратор' || user.role === 'Админ') return true;
     const perms = user.permissions || [];
     if (perms.includes('FULL_ACCESS')) return true;
     return perms.includes(permission);
