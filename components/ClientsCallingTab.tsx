@@ -20,7 +20,12 @@ import {
   MapPin,
   Filter,
   ShieldCheck,
-  Lock,
+  Clock4,
+  Send,
+  PhoneMissed,
+  AlertCircle,
+  MessageSquare,
+  XCircle,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 
@@ -29,7 +34,8 @@ export interface Client {
   name: string;
   city: string;
   phones: string[];
-  category: 'WORKING' | 'NOT_WORKING' | 'STOPPED' | 'BLACKLIST' | string;
+  category: string;
+  comment?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -37,20 +43,118 @@ export interface Client {
 export interface ClientStats {
   total: number;
   working: number;
-  notWorking: number;
-  stopped: number;
+  onDemand?: number;
+  priceSent?: number;
+  noAnswer?: number;
+  wrongNumber?: number;
+  other?: number;
+  rejected?: number;
   blacklist: number;
+  notWorking?: number;
+  stopped?: number;
 }
 
-const CATEGORIES_CONFIG = {
+export interface CategoryMeta {
+  label: string;
+  shortLabel?: string;
+  color: string;
+  activeBg: string;
+  badge: string;
+  dot: string;
+  icon: React.ComponentType<{ className?: string }>;
+  description: string;
+  hasNote?: boolean;
+  noteLabel?: string;
+  notePlaceholder?: string;
+  notePromptTitle?: string;
+}
+
+export const CATEGORIES_CONFIG: Record<string, CategoryMeta> = {
   WORKING: {
     label: 'Работаем',
-    color: 'bg-emerald-50 text-emerald-700 border-emerald-300 hover:bg-emerald-100',
-    activeBg: 'bg-emerald-600 text-white',
+    color: 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100',
+    activeBg: 'bg-emerald-700 text-white',
     badge: 'bg-emerald-100 text-emerald-800 border-emerald-200',
     dot: 'bg-emerald-500',
     icon: CheckCircle2,
+    description: 'Действующие клиенты',
   },
+  ON_DEMAND: {
+    label: 'По потребности',
+    color: 'bg-sky-50 text-sky-800 border-sky-300 hover:bg-sky-100',
+    activeBg: 'bg-sky-700 text-white',
+    badge: 'bg-sky-100 text-sky-800 border-sky-200',
+    dot: 'bg-sky-500',
+    icon: Clock4,
+    description: 'Берут по мере надобности',
+  },
+  PRICE_SENT: {
+    label: 'Скинули прайс',
+    color: 'bg-indigo-50 text-indigo-800 border-indigo-300 hover:bg-indigo-100',
+    activeBg: 'bg-indigo-700 text-white',
+    badge: 'bg-indigo-100 text-indigo-800 border-indigo-200',
+    dot: 'bg-indigo-500',
+    icon: Send,
+    description: 'Отправлен прайс-лист',
+  },
+  NO_ANSWER: {
+    label: 'Не отвечают',
+    color: 'bg-amber-50 text-amber-800 border-amber-300 hover:bg-amber-100',
+    activeBg: 'bg-amber-600 text-white',
+    badge: 'bg-amber-100 text-amber-800 border-amber-200',
+    dot: 'bg-amber-500',
+    icon: PhoneMissed,
+    description: 'Не берут трубку / сброс',
+  },
+  WRONG_NUMBER: {
+    label: 'Неправильный номер',
+    color: 'bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200',
+    activeBg: 'bg-slate-700 text-white',
+    badge: 'bg-slate-100 text-slate-700 border-slate-200',
+    dot: 'bg-slate-400',
+    icon: AlertCircle,
+    description: 'Номер не существует / чужой',
+  },
+  OTHER: {
+    label: 'Другое',
+    color: 'bg-purple-50 text-purple-800 border-purple-300 hover:bg-purple-100',
+    activeBg: 'bg-purple-700 text-white',
+    badge: 'bg-purple-100 text-purple-800 border-purple-200',
+    dot: 'bg-purple-500',
+    icon: MessageSquare,
+    hasNote: true,
+    noteLabel: 'Примечание',
+    notePlaceholder: 'Впишите примечание к клиенту...',
+    notePromptTitle: 'Укажите примечание',
+    description: 'Особый статус с примечанием',
+  },
+  REJECTED: {
+    label: 'Отказали',
+    color: 'bg-orange-50 text-orange-900 border-orange-300 hover:bg-orange-100',
+    activeBg: 'bg-orange-600 text-white',
+    badge: 'bg-orange-100 text-orange-800 border-orange-200',
+    dot: 'bg-orange-500',
+    icon: XCircle,
+    hasNote: true,
+    noteLabel: 'Причина отказа',
+    notePlaceholder: 'Укажите причину отказа (дорого, есть поставщик и т.д.)...',
+    notePromptTitle: 'Укажите причину отказа',
+    description: 'Отказ от сотрудничества',
+  },
+  BLACKLIST: {
+    label: 'В ЧС',
+    color: 'bg-rose-50 text-rose-800 border-rose-300 hover:bg-rose-100',
+    activeBg: 'bg-rose-700 text-white',
+    badge: 'bg-rose-100 text-rose-800 border-rose-200',
+    dot: 'bg-rose-500',
+    icon: Ban,
+    hasNote: true,
+    noteLabel: 'Причина ЧС',
+    notePlaceholder: 'Укажите причину добавления в ЧС (долг, конфликт и т.д.)...',
+    notePromptTitle: 'Укажите причину ЧС',
+    description: 'Черный список',
+  },
+  // Legacy
   NOT_WORKING: {
     label: 'Не работаем',
     color: 'bg-slate-100 text-slate-700 border-slate-300 hover:bg-slate-200',
@@ -58,6 +162,7 @@ const CATEGORIES_CONFIG = {
     badge: 'bg-slate-100 text-slate-700 border-slate-200',
     dot: 'bg-slate-400',
     icon: Users,
+    description: 'Потенциальные клиенты',
   },
   STOPPED: {
     label: 'Перестали',
@@ -66,14 +171,7 @@ const CATEGORIES_CONFIG = {
     badge: 'bg-amber-100 text-amber-800 border-amber-200',
     dot: 'bg-amber-500',
     icon: AlertTriangle,
-  },
-  BLACKLIST: {
-    label: 'ЧС',
-    color: 'bg-rose-50 text-rose-700 border-rose-300 hover:bg-rose-100',
-    activeBg: 'bg-rose-600 text-white',
-    badge: 'bg-rose-100 text-rose-800 border-rose-200',
-    dot: 'bg-rose-500',
-    icon: Ban,
+    description: 'Бывшие клиенты',
   },
 };
 
@@ -89,16 +187,22 @@ export default function ClientsCallingTab({ onCountChange }: ClientsCallingTabPr
   const [stats, setStats] = useState<ClientStats>({
     total: 0,
     working: 0,
+    onDemand: 0,
+    priceSent: 0,
+    noAnswer: 0,
+    wrongNumber: 0,
+    other: 0,
+    rejected: 0,
+    blacklist: 0,
     notWorking: 0,
     stopped: 0,
-    blacklist: 0,
   });
   const [loading, setLoading] = useState(true);
 
   // Фильтры
   const [search, setSearch] = useState('');
   const [selectedCity, setSelectedCity] = useState('ALL');
-  const [selectedCategory, setSelectedCategory] = useState<'ALL' | 'WORKING' | 'NOT_WORKING' | 'STOPPED' | 'BLACKLIST'>('ALL');
+  const [selectedCategory, setSelectedCategory] = useState<string>('ALL');
 
   // Модальное окно добавления/редактирования
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -107,7 +211,8 @@ export default function ClientsCallingTab({ onCountChange }: ClientsCallingTabPr
   // Поля формы
   const [formName, setFormName] = useState('');
   const [formCity, setFormCity] = useState('');
-  const [formCategory, setFormCategory] = useState<'WORKING' | 'NOT_WORKING' | 'STOPPED' | 'BLACKLIST'>('WORKING');
+  const [formCategory, setFormCategory] = useState<string>('ON_DEMAND');
+  const [formComment, setFormComment] = useState('');
   const [formPhones, setFormPhones] = useState<string[]>(['']);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -115,6 +220,18 @@ export default function ClientsCallingTab({ onCountChange }: ClientsCallingTabPr
   const [quickPhoneClientId, setQuickPhoneClientId] = useState<string | null>(null);
   const [quickPhoneValue, setQuickPhoneValue] = useState('');
   const [isAddingQuickPhone, setIsAddingQuickPhone] = useState(false);
+
+  // Модальное окно быстрого ввода примечания / причины отказа / причины ЧС
+  const [quickNoteModal, setQuickNoteModal] = useState<{
+    isOpen: boolean;
+    client: Client;
+    newCategory: string;
+    commentText: string;
+    noteLabel: string;
+    notePromptTitle: string;
+    notePlaceholder: string;
+    isPrompt: boolean;
+  } | null>(null);
 
   // Быстрое копирование
   const [copiedPhone, setCopiedPhone] = useState<string | null>(null);
@@ -132,7 +249,21 @@ export default function ClientsCallingTab({ onCountChange }: ClientsCallingTabPr
       });
 
       setClients(res.data.items || []);
-      setStats(res.data.stats || { total: 0, working: 0, notWorking: 0, stopped: 0, blacklist: 0 });
+      setStats(
+        res.data.stats || {
+          total: 0,
+          working: 0,
+          onDemand: 0,
+          priceSent: 0,
+          noAnswer: 0,
+          wrongNumber: 0,
+          other: 0,
+          rejected: 0,
+          blacklist: 0,
+          notWorking: 0,
+          stopped: 0,
+        }
+      );
       setCities(res.data.cities || []);
       if (onCountChange && res.data.stats?.total !== undefined) {
         onCountChange(res.data.stats.total);
@@ -237,20 +368,75 @@ export default function ClientsCallingTab({ onCountChange }: ClientsCallingTabPr
     }, 2000);
   };
 
-  // Быстрое изменение категории в 1 клик
-  const handleChangeCategory = async (clientId: string, newCat: string) => {
+  // Изменение категории в строке таблицы
+  const handleCategorySelectChange = async (client: Client, newCat: string) => {
+    const cfg = CATEGORIES_CONFIG[newCat];
+    if (cfg?.hasNote) {
+      // Открываем модальное окно для ввода примечания / причины
+      setQuickNoteModal({
+        isOpen: true,
+        client,
+        newCategory: newCat,
+        commentText: client.comment || '',
+        noteLabel: cfg.noteLabel || 'Примечание',
+        notePromptTitle: cfg.notePromptTitle || 'Укажите примечание',
+        notePlaceholder: cfg.notePlaceholder || 'Впишите текст...',
+        isPrompt: true,
+      });
+    } else {
+      // Категория без обязательного примечания
+      try {
+        setClients((prev) =>
+          prev.map((c) => (c.id === client.id ? { ...c, category: newCat } : c))
+        );
+        await api.put(`/api/clients/${client.id}`, { category: newCat });
+        fetchClients(true);
+        toast.success('Категория обновлена', { duration: 1500 });
+      } catch (err: any) {
+        toast.error('Ошибка сохранения категории');
+        fetchClients(true);
+      }
+    }
+  };
+
+  // Сохранение быстрого примечания / причины
+  const handleSaveQuickNote = async (includeComment = true) => {
+    if (!quickNoteModal) return;
+    const { client, newCategory, commentText } = quickNoteModal;
+    const comment = includeComment ? (commentText.trim() || null) : null;
+
     try {
       setClients((prev) =>
-        prev.map((c) => (c.id === clientId ? { ...c, category: newCat } : c))
+        prev.map((c) =>
+          c.id === client.id ? { ...c, category: newCategory, comment } : c
+        )
       );
-
-      await api.put(`/api/clients/${clientId}`, { category: newCat });
+      await api.put(`/api/clients/${client.id}`, {
+        category: newCategory,
+        comment,
+      });
+      setQuickNoteModal(null);
       fetchClients(true);
-      toast.success('Категория обновлена', { duration: 1500 });
+      toast.success('Данные сохранены', { duration: 1500 });
     } catch (err: any) {
-      toast.error('Ошибка сохранения категории');
+      toast.error('Ошибка сохранения');
       fetchClients(true);
     }
+  };
+
+  // Открытие редактора примечания по клику на бейдж / карандаш в строке
+  const handleOpenQuickNoteEditor = (client: Client) => {
+    const cfg = CATEGORIES_CONFIG[client.category] || CATEGORIES_CONFIG.OTHER;
+    setQuickNoteModal({
+      isOpen: true,
+      client,
+      newCategory: client.category,
+      commentText: client.comment || '',
+      noteLabel: cfg.noteLabel || 'Примечание',
+      notePromptTitle: cfg.notePromptTitle || 'Редактирование примечания',
+      notePlaceholder: cfg.notePlaceholder || 'Впишите текст...',
+      isPrompt: false,
+    });
   };
 
   // Быстрое добавление номера в строке
@@ -306,7 +492,8 @@ export default function ClientsCallingTab({ onCountChange }: ClientsCallingTabPr
     setEditingClient(null);
     setFormName('');
     setFormCity(selectedCity !== 'ALL' ? selectedCity : cities[0] || 'Нижневартовск');
-    setFormCategory('WORKING');
+    setFormCategory('ON_DEMAND');
+    setFormComment('');
     setFormPhones(['']);
     setIsModalOpen(true);
   };
@@ -315,7 +502,8 @@ export default function ClientsCallingTab({ onCountChange }: ClientsCallingTabPr
     setEditingClient(client);
     setFormName(client.name);
     setFormCity(client.city);
-    setFormCategory((client.category as any) || 'WORKING');
+    setFormCategory(client.category || 'ON_DEMAND');
+    setFormComment(client.comment || '');
     setFormPhones(client.phones?.length ? [...client.phones] : ['']);
     setIsModalOpen(true);
   };
@@ -355,21 +543,19 @@ export default function ClientsCallingTab({ onCountChange }: ClientsCallingTabPr
 
     try {
       setIsSubmitting(true);
+      const payload = {
+        name: formName.trim(),
+        city: formCity.trim(),
+        category: formCategory,
+        comment: formComment.trim() || null,
+        phones: cleanedPhones,
+      };
+
       if (editingClient) {
-        await api.put(`/api/clients/${editingClient.id}`, {
-          name: formName.trim(),
-          city: formCity.trim(),
-          category: formCategory,
-          phones: cleanedPhones,
-        });
+        await api.put(`/api/clients/${editingClient.id}`, payload);
         toast.success('Клиент успешно обновлен');
       } else {
-        await api.post('/api/clients', {
-          name: formName.trim(),
-          city: formCity.trim(),
-          category: formCategory,
-          phones: cleanedPhones,
-        });
+        await api.post('/api/clients', payload);
         toast.success('Клиент успешно добавлен в базу');
       }
 
@@ -381,6 +567,18 @@ export default function ClientsCallingTab({ onCountChange }: ClientsCallingTabPr
       setIsSubmitting(false);
     }
   };
+
+  // Список основных категорий для фильтров и модалок
+  const MAIN_CATEGORIES = [
+    'WORKING',
+    'ON_DEMAND',
+    'PRICE_SENT',
+    'NO_ANSWER',
+    'WRONG_NUMBER',
+    'OTHER',
+    'REJECTED',
+    'BLACKLIST',
+  ];
 
   return (
     <div
@@ -405,105 +603,171 @@ export default function ClientsCallingTab({ onCountChange }: ClientsCallingTabPr
       </div>
 
       {/* 1. KPI карточки категорий (клик по карточке фильтрует список) */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 lg:grid-cols-9 gap-2.5">
         {/* Все клиенты */}
         <button
           type="button"
           onClick={() => setSelectedCategory('ALL')}
-          className={`p-4 rounded-2xl border text-left transition-all cursor-pointer shadow-xs ${
+          className={`p-3 rounded-2xl border text-left transition-all cursor-pointer shadow-xs ${
             selectedCategory === 'ALL'
               ? 'bg-slate-900 text-white border-slate-900 ring-2 ring-slate-800 shadow-md'
               : 'bg-white text-slate-800 border-slate-200 hover:border-slate-300 hover:bg-slate-50'
           }`}
         >
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold uppercase tracking-wider opacity-75">
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-[11px] font-semibold uppercase tracking-wider opacity-75 truncate">
               Все клиенты
             </span>
-            <Building2 className={`w-4 h-4 ${selectedCategory === 'ALL' ? 'text-teal-400' : 'text-slate-400'}`} />
+            <Building2 className={`w-3.5 h-3.5 shrink-0 ${selectedCategory === 'ALL' ? 'text-teal-400' : 'text-slate-400'}`} />
           </div>
-          <div className="text-2xl font-black">{stats.total}</div>
-          <div className="text-[11px] opacity-75 mt-0.5">В базе обзвона</div>
+          <div className="text-xl font-black">{stats.total}</div>
+          <div className="text-[10px] opacity-75 mt-0.5 truncate">База обзвона</div>
         </button>
 
         {/* Работаем */}
         <button
           type="button"
           onClick={() => setSelectedCategory('WORKING')}
-          className={`p-4 rounded-2xl border text-left transition-all cursor-pointer shadow-xs ${
+          className={`p-3 rounded-2xl border text-left transition-all cursor-pointer shadow-xs ${
             selectedCategory === 'WORKING'
               ? 'bg-emerald-700 text-white border-emerald-700 ring-2 ring-emerald-500 shadow-md'
               : 'bg-emerald-50/50 text-emerald-950 border-emerald-200 hover:bg-emerald-100/60'
           }`}
         >
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-bold uppercase tracking-wider">Работаем</span>
-            <CheckCircle2 className={`w-4 h-4 ${selectedCategory === 'WORKING' ? 'text-white' : 'text-emerald-600'}`} />
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-[11px] font-bold uppercase tracking-wider truncate">Работаем</span>
+            <CheckCircle2 className={`w-3.5 h-3.5 shrink-0 ${selectedCategory === 'WORKING' ? 'text-white' : 'text-emerald-600'}`} />
           </div>
-          <div className="text-2xl font-black text-emerald-800">
-            {stats.working}
-          </div>
-          <div className="text-[11px] opacity-75 mt-0.5">
-            {stats.total > 0 ? `${Math.round((stats.working / stats.total) * 100)}% от базы` : '0%'}
+          <div className="text-xl font-black text-emerald-800">{stats.working}</div>
+          <div className="text-[10px] opacity-75 mt-0.5 truncate">
+            {stats.total > 0 ? `${Math.round((stats.working / stats.total) * 100)}% базы` : '0%'}
           </div>
         </button>
 
-        {/* Не работаем */}
+        {/* По потребности */}
         <button
           type="button"
-          onClick={() => setSelectedCategory('NOT_WORKING')}
-          className={`p-4 rounded-2xl border text-left transition-all cursor-pointer shadow-xs ${
-            selectedCategory === 'NOT_WORKING'
-              ? 'bg-slate-800 text-white border-slate-800 ring-2 ring-slate-600 shadow-md'
-              : 'bg-slate-50 text-slate-800 border-slate-200 hover:bg-slate-100'
+          onClick={() => setSelectedCategory('ON_DEMAND')}
+          className={`p-3 rounded-2xl border text-left transition-all cursor-pointer shadow-xs ${
+            selectedCategory === 'ON_DEMAND'
+              ? 'bg-sky-700 text-white border-sky-700 ring-2 ring-sky-500 shadow-md'
+              : 'bg-sky-50/50 text-sky-950 border-sky-200 hover:bg-sky-100/60'
           }`}
         >
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-bold uppercase tracking-wider">Не работаем</span>
-            <Users className={`w-4 h-4 ${selectedCategory === 'NOT_WORKING' ? 'text-white' : 'text-slate-500'}`} />
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-[11px] font-bold uppercase tracking-wider truncate">По треб.</span>
+            <Clock4 className={`w-3.5 h-3.5 shrink-0 ${selectedCategory === 'ON_DEMAND' ? 'text-white' : 'text-sky-600'}`} />
           </div>
-          <div className="text-2xl font-black">{stats.notWorking}</div>
-          <div className="text-[11px] opacity-75 mt-0.5">Потенциальные / лиды</div>
+          <div className="text-xl font-black text-sky-900">{stats.onDemand || 0}</div>
+          <div className="text-[10px] opacity-75 mt-0.5 truncate">По потребности</div>
         </button>
 
-        {/* Перестали */}
+        {/* Скинули прайс */}
         <button
           type="button"
-          onClick={() => setSelectedCategory('STOPPED')}
-          className={`p-4 rounded-2xl border text-left transition-all cursor-pointer shadow-xs ${
-            selectedCategory === 'STOPPED'
+          onClick={() => setSelectedCategory('PRICE_SENT')}
+          className={`p-3 rounded-2xl border text-left transition-all cursor-pointer shadow-xs ${
+            selectedCategory === 'PRICE_SENT'
+              ? 'bg-indigo-700 text-white border-indigo-700 ring-2 ring-indigo-500 shadow-md'
+              : 'bg-indigo-50/50 text-indigo-950 border-indigo-200 hover:bg-indigo-100/60'
+          }`}
+        >
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-[11px] font-bold uppercase tracking-wider truncate">Прайс</span>
+            <Send className={`w-3.5 h-3.5 shrink-0 ${selectedCategory === 'PRICE_SENT' ? 'text-white' : 'text-indigo-600'}`} />
+          </div>
+          <div className="text-xl font-black text-indigo-900">{stats.priceSent || 0}</div>
+          <div className="text-[10px] opacity-75 mt-0.5 truncate">Скинули прайс</div>
+        </button>
+
+        {/* Не отвечают */}
+        <button
+          type="button"
+          onClick={() => setSelectedCategory('NO_ANSWER')}
+          className={`p-3 rounded-2xl border text-left transition-all cursor-pointer shadow-xs ${
+            selectedCategory === 'NO_ANSWER'
               ? 'bg-amber-600 text-white border-amber-600 ring-2 ring-amber-400 shadow-md'
               : 'bg-amber-50/60 text-amber-950 border-amber-200 hover:bg-amber-100/70'
           }`}
         >
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-bold uppercase tracking-wider">Перестали</span>
-            <AlertTriangle className={`w-4 h-4 ${selectedCategory === 'STOPPED' ? 'text-white' : 'text-amber-600'}`} />
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-[11px] font-bold uppercase tracking-wider truncate">Не ответ.</span>
+            <PhoneMissed className={`w-3.5 h-3.5 shrink-0 ${selectedCategory === 'NO_ANSWER' ? 'text-white' : 'text-amber-600'}`} />
           </div>
-          <div className="text-2xl font-black text-amber-900">
-            {stats.stopped}
-          </div>
-          <div className="text-[11px] opacity-75 mt-0.5">Закрылись / пауза</div>
+          <div className="text-xl font-black text-amber-900">{stats.noAnswer || 0}</div>
+          <div className="text-[10px] opacity-75 mt-0.5 truncate">Гудки / сброс</div>
         </button>
 
-        {/* ЧС */}
+        {/* Неправильный номер */}
+        <button
+          type="button"
+          onClick={() => setSelectedCategory('WRONG_NUMBER')}
+          className={`p-3 rounded-2xl border text-left transition-all cursor-pointer shadow-xs ${
+            selectedCategory === 'WRONG_NUMBER'
+              ? 'bg-slate-800 text-white border-slate-800 ring-2 ring-slate-600 shadow-md'
+              : 'bg-slate-50 text-slate-800 border-slate-200 hover:bg-slate-100'
+          }`}
+        >
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-[11px] font-bold uppercase tracking-wider truncate">Не тот №</span>
+            <AlertCircle className={`w-3.5 h-3.5 shrink-0 ${selectedCategory === 'WRONG_NUMBER' ? 'text-white' : 'text-slate-500'}`} />
+          </div>
+          <div className="text-xl font-black text-slate-800">{stats.wrongNumber || 0}</div>
+          <div className="text-[10px] opacity-75 mt-0.5 truncate">Неверный номер</div>
+        </button>
+
+        {/* Другое */}
+        <button
+          type="button"
+          onClick={() => setSelectedCategory('OTHER')}
+          className={`p-3 rounded-2xl border text-left transition-all cursor-pointer shadow-xs ${
+            selectedCategory === 'OTHER'
+              ? 'bg-purple-700 text-white border-purple-700 ring-2 ring-purple-500 shadow-md'
+              : 'bg-purple-50/50 text-purple-950 border-purple-200 hover:bg-purple-100/60'
+          }`}
+        >
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-[11px] font-bold uppercase tracking-wider truncate">Другое</span>
+            <MessageSquare className={`w-3.5 h-3.5 shrink-0 ${selectedCategory === 'OTHER' ? 'text-white' : 'text-purple-600'}`} />
+          </div>
+          <div className="text-xl font-black text-purple-900">{stats.other || 0}</div>
+          <div className="text-[10px] opacity-75 mt-0.5 truncate">С примечанием</div>
+        </button>
+
+        {/* Отказали */}
+        <button
+          type="button"
+          onClick={() => setSelectedCategory('REJECTED')}
+          className={`p-3 rounded-2xl border text-left transition-all cursor-pointer shadow-xs ${
+            selectedCategory === 'REJECTED'
+              ? 'bg-orange-600 text-white border-orange-600 ring-2 ring-orange-400 shadow-md'
+              : 'bg-orange-50/60 text-orange-950 border-orange-200 hover:bg-orange-100/70'
+          }`}
+        >
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-[11px] font-bold uppercase tracking-wider truncate">Отказали</span>
+            <XCircle className={`w-3.5 h-3.5 shrink-0 ${selectedCategory === 'REJECTED' ? 'text-white' : 'text-orange-600'}`} />
+          </div>
+          <div className="text-xl font-black text-orange-900">{stats.rejected || 0}</div>
+          <div className="text-[10px] opacity-75 mt-0.5 truncate">Причина отказа</div>
+        </button>
+
+        {/* В ЧС */}
         <button
           type="button"
           onClick={() => setSelectedCategory('BLACKLIST')}
-          className={`p-4 rounded-2xl border text-left transition-all cursor-pointer shadow-xs ${
+          className={`p-3 rounded-2xl border text-left transition-all cursor-pointer shadow-xs ${
             selectedCategory === 'BLACKLIST'
               ? 'bg-rose-700 text-white border-rose-700 ring-2 ring-rose-500 shadow-md'
               : 'bg-rose-50/60 text-rose-950 border-rose-200 hover:bg-rose-100/70'
           }`}
         >
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-bold uppercase tracking-wider">ЧС</span>
-            <Ban className={`w-4 h-4 ${selectedCategory === 'BLACKLIST' ? 'text-white' : 'text-rose-600'}`} />
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-[11px] font-bold uppercase tracking-wider truncate">В ЧС</span>
+            <Ban className={`w-3.5 h-3.5 shrink-0 ${selectedCategory === 'BLACKLIST' ? 'text-white' : 'text-rose-600'}`} />
           </div>
-          <div className="text-2xl font-black text-rose-800">
-            {stats.blacklist}
-          </div>
-          <div className="text-[11px] opacity-75 mt-0.5">Черный список</div>
+          <div className="text-xl font-black text-rose-800">{stats.blacklist}</div>
+          <div className="text-[10px] opacity-75 mt-0.5 truncate">Причина ЧС</div>
         </button>
       </div>
 
@@ -517,7 +781,7 @@ export default function ClientsCallingTab({ onCountChange }: ClientsCallingTabPr
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Поиск по названию клиента, городу или номеру телефона..."
+              placeholder="Поиск по названию, городу, телефону или примечанию..."
               className="w-full pl-10 pr-9 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:bg-white transition"
             />
             {search && (
@@ -581,7 +845,7 @@ export default function ClientsCallingTab({ onCountChange }: ClientsCallingTabPr
           <button
             type="button"
             onClick={() => setSelectedCategory('ALL')}
-            className={`px-3 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
+            className={`px-2.5 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
               selectedCategory === 'ALL'
                 ? 'bg-slate-900 text-white shadow-2xs'
                 : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
@@ -589,54 +853,67 @@ export default function ClientsCallingTab({ onCountChange }: ClientsCallingTabPr
           >
             Все ({stats.total})
           </button>
-          <button
-            type="button"
-            onClick={() => setSelectedCategory('WORKING')}
-            className={`px-3 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1 cursor-pointer ${
-              selectedCategory === 'WORKING'
-                ? 'bg-emerald-600 text-white shadow-2xs'
-                : 'bg-emerald-50 text-emerald-800 hover:bg-emerald-100 border border-emerald-200/60'
-            }`}
-          >
-            <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block"></span>
-            Работаем ({stats.working})
-          </button>
-          <button
-            type="button"
-            onClick={() => setSelectedCategory('NOT_WORKING')}
-            className={`px-3 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1 cursor-pointer ${
-              selectedCategory === 'NOT_WORKING'
-                ? 'bg-slate-700 text-white shadow-2xs'
-                : 'bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-200'
-            }`}
-          >
-            <span className="w-2 h-2 rounded-full bg-slate-400 inline-block"></span>
-            Не работаем ({stats.notWorking})
-          </button>
-          <button
-            type="button"
-            onClick={() => setSelectedCategory('STOPPED')}
-            className={`px-3 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1 cursor-pointer ${
-              selectedCategory === 'STOPPED'
-                ? 'bg-amber-600 text-white shadow-2xs'
-                : 'bg-amber-50 text-amber-800 hover:bg-amber-100 border border-amber-200/60'
-            }`}
-          >
-            <span className="w-2 h-2 rounded-full bg-amber-500 inline-block"></span>
-            Перестали ({stats.stopped})
-          </button>
-          <button
-            type="button"
-            onClick={() => setSelectedCategory('BLACKLIST')}
-            className={`px-3 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1 cursor-pointer ${
-              selectedCategory === 'BLACKLIST'
-                ? 'bg-rose-600 text-white shadow-2xs'
-                : 'bg-rose-50 text-rose-800 hover:bg-rose-100 border border-rose-200/60'
-            }`}
-          >
-            <span className="w-2 h-2 rounded-full bg-rose-500 inline-block"></span>
-            ЧС ({stats.blacklist})
-          </button>
+
+          {MAIN_CATEGORIES.map((catKey) => {
+            const cfg = CATEGORIES_CONFIG[catKey];
+            if (!cfg) return null;
+            let count = 0;
+            if (catKey === 'WORKING') count = stats.working;
+            else if (catKey === 'ON_DEMAND') count = stats.onDemand || 0;
+            else if (catKey === 'PRICE_SENT') count = stats.priceSent || 0;
+            else if (catKey === 'NO_ANSWER') count = stats.noAnswer || 0;
+            else if (catKey === 'WRONG_NUMBER') count = stats.wrongNumber || 0;
+            else if (catKey === 'OTHER') count = stats.other || 0;
+            else if (catKey === 'REJECTED') count = stats.rejected || 0;
+            else if (catKey === 'BLACKLIST') count = stats.blacklist;
+
+            const isSelected = selectedCategory === catKey;
+
+            return (
+              <button
+                key={catKey}
+                type="button"
+                onClick={() => setSelectedCategory(catKey)}
+                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                  isSelected
+                    ? `${cfg.activeBg} shadow-2xs`
+                    : `${cfg.color}`
+                }`}
+              >
+                <span className={`w-2 h-2 rounded-full ${isSelected ? 'bg-white' : cfg.dot} inline-block`}></span>
+                <span>{cfg.label} ({count})</span>
+              </button>
+            );
+          })}
+
+          {/* Legacy фильтры, если есть клиенты с такими категориями */}
+          {(stats.notWorking || 0) > 0 && (
+            <button
+              type="button"
+              onClick={() => setSelectedCategory('NOT_WORKING')}
+              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1 cursor-pointer ${
+                selectedCategory === 'NOT_WORKING'
+                  ? 'bg-slate-700 text-white'
+                  : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+              }`}
+            >
+              Не работаем ({stats.notWorking})
+            </button>
+          )}
+
+          {(stats.stopped || 0) > 0 && (
+            <button
+              type="button"
+              onClick={() => setSelectedCategory('STOPPED')}
+              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1 cursor-pointer ${
+                selectedCategory === 'STOPPED'
+                  ? 'bg-amber-600 text-white'
+                  : 'bg-amber-50 text-amber-800 hover:bg-amber-100'
+              }`}
+            >
+              Перестали ({stats.stopped})
+            </button>
+          )}
 
           <span className="ml-auto text-xs text-slate-400 font-medium">
             Найдено: <strong className="text-slate-700">{clients.length}</strong>
@@ -681,8 +958,8 @@ export default function ClientsCallingTab({ onCountChange }: ClientsCallingTabPr
                 <tr className="bg-slate-50/80 border-b border-slate-200 text-slate-500 font-bold uppercase tracking-wider text-[11px]">
                   <th className="py-3.5 px-4 w-[28%]">Название магазина / Контрагент</th>
                   <th className="py-3.5 px-4 w-[14%]">Город</th>
-                  <th className="py-3.5 px-4 w-[18%]">Категория</th>
-                  <th className="py-3.5 px-4 w-[32%]">Номера телефонов</th>
+                  <th className="py-3.5 px-4 w-[22%]">Категория / Примечание</th>
+                  <th className="py-3.5 px-4 w-[28%]">Номера телефонов</th>
                   <th className="py-3.5 px-4 text-right w-[8%]">Действия</th>
                 </tr>
               </thead>
@@ -690,7 +967,7 @@ export default function ClientsCallingTab({ onCountChange }: ClientsCallingTabPr
                 {clients.map((client) => {
                   const cfg =
                     CATEGORIES_CONFIG[client.category as keyof typeof CATEGORIES_CONFIG] ||
-                    CATEGORIES_CONFIG.NOT_WORKING;
+                    CATEGORIES_CONFIG.ON_DEMAND;
                   const isQuickAddOpen = quickPhoneClientId === client.id;
 
                   return (
@@ -713,22 +990,79 @@ export default function ClientsCallingTab({ onCountChange }: ClientsCallingTabPr
                         </span>
                       </td>
 
-                      {/* Категория (интерактивный селектор) */}
+                      {/* Категория (интерактивный селектор) + Примечание / Причина с показом при наведении */}
                       <td className="py-3.5 px-4 align-top">
-                        <div className="relative inline-block">
-                          <select
-                            value={client.category}
-                            onChange={(e) => handleChangeCategory(client.id, e.target.value)}
-                            className={`pl-2.5 pr-7 py-1 rounded-lg text-xs font-bold border transition cursor-pointer appearance-none ${cfg.color}`}
-                          >
-                            <option value="WORKING">🟢 Работаем</option>
-                            <option value="NOT_WORKING">⚪ Не работаем</option>
-                            <option value="STOPPED">🟠 Перестали</option>
-                            <option value="BLACKLIST">🔴 ЧС</option>
-                          </select>
-                          <div className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-[10px] opacity-60">
-                            ▼
+                        <div className="space-y-1.5">
+                          {/* Селектор категории */}
+                          <div className="relative inline-block">
+                            <select
+                              value={client.category}
+                              onChange={(e) => handleCategorySelectChange(client, e.target.value)}
+                              className={`pl-2.5 pr-7 py-1 rounded-lg text-xs font-bold border transition cursor-pointer appearance-none shadow-2xs ${cfg.color}`}
+                              title={client.comment ? `${cfg.noteLabel || 'Примечание'}: ${client.comment}` : undefined}
+                            >
+                              <option value="WORKING">🟢 Работаем</option>
+                              <option value="ON_DEMAND">🔵 По потребности</option>
+                              <option value="PRICE_SENT">🟣 Скинули прайс</option>
+                              <option value="NO_ANSWER">🟡 Не отвечают</option>
+                              <option value="WRONG_NUMBER">⚪ Неправильный номер</option>
+                              <option value="OTHER">💬 Другое</option>
+                              <option value="REJECTED">🟠 Отказали</option>
+                              <option value="BLACKLIST">🔴 В ЧС</option>
+                              {client.category === 'NOT_WORKING' && <option value="NOT_WORKING">⚪ Не работаем</option>}
+                              {client.category === 'STOPPED' && <option value="STOPPED">🟠 Перестали</option>}
+                            </select>
+                            <div className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-[10px] opacity-60">
+                              ▼
+                            </div>
                           </div>
+
+                          {/* Примечание / Причина (показывается при наведении hover-тултипом) */}
+                          {client.comment ? (
+                            <div
+                              className="group/note relative flex items-center gap-1.5 max-w-[240px] px-2 py-1 rounded-lg bg-slate-50 hover:bg-slate-100/90 border border-slate-200 text-slate-700 text-[11px] font-medium transition cursor-help shadow-2xs"
+                              title={`${cfg.noteLabel || 'Примечание'}: ${client.comment}`}
+                            >
+                              <MessageSquare className="w-3 h-3 text-slate-400 shrink-0" />
+                              <span className="truncate">{client.comment}</span>
+
+                              {/* Всплывающая подсказка при наведении (hover tooltip) */}
+                              <div className="pointer-events-none absolute left-0 bottom-full mb-1.5 hidden group-hover/note:flex flex-col z-30 w-64 p-2.5 rounded-xl bg-slate-900 text-white text-xs shadow-2xl border border-slate-800 animate-in fade-in duration-150">
+                                <span className="font-bold text-[10px] uppercase text-teal-400 mb-0.5 tracking-wider">
+                                  {cfg.noteLabel || 'Примечание'}
+                                </span>
+                                <span className="leading-snug break-words font-normal text-slate-200">
+                                  {client.comment}
+                                </span>
+                                <div className="absolute left-4 top-full w-2.5 h-2.5 bg-slate-900 rotate-45 -translate-y-1.5"></div>
+                              </div>
+
+                              {/* Кнопка быстрого изменения примечания */}
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleOpenQuickNoteEditor(client);
+                                }}
+                                className="ml-auto p-0.5 text-slate-400 hover:text-teal-600 rounded transition cursor-pointer"
+                                title="Редактировать примечание / причину"
+                              >
+                                <Pencil className="w-2.5 h-2.5" />
+                              </button>
+                            </div>
+                          ) : (
+                            cfg.hasNote && (
+                              <button
+                                type="button"
+                                onClick={() => handleOpenQuickNoteEditor(client)}
+                                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-semibold text-slate-400 hover:text-teal-700 hover:bg-teal-50 border border-dashed border-slate-300 hover:border-teal-300 transition cursor-pointer"
+                                title={`Указать ${cfg.noteLabel?.toLowerCase() || 'примечание'}`}
+                              >
+                                <Plus className="w-2.5 h-2.5" />
+                                <span>+ {cfg.noteLabel || 'Примечание'}</span>
+                              </button>
+                            )
+                          )}
                         </div>
                       </td>
 
@@ -876,10 +1210,83 @@ export default function ClientsCallingTab({ onCountChange }: ClientsCallingTabPr
         </div>
       )}
 
-      {/* 4. Модальное окно создания / редактирования клиента */}
+      {/* 4. Модальное окно быстрого ввода примечания / причины */}
+      {quickNoteModal && quickNoteModal.isOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 relative animate-in fade-in zoom-in-95 duration-200">
+            <button
+              type="button"
+              onClick={() => setQuickNoteModal(null)}
+              className="absolute right-5 top-5 p-1.5 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100 transition cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-xl bg-teal-50 text-teal-600 flex items-center justify-center font-bold shrink-0">
+                <MessageSquare className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-black text-slate-900 leading-tight">
+                  {quickNoteModal.notePromptTitle}
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5 truncate max-w-[280px]">
+                  {quickNoteModal.client.name} • {quickNoteModal.client.city}
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+                {quickNoteModal.noteLabel}
+              </label>
+              <textarea
+                autoFocus
+                rows={3}
+                value={quickNoteModal.commentText}
+                onChange={(e) =>
+                  setQuickNoteModal((prev) =>
+                    prev ? { ...prev, commentText: e.target.value } : null
+                  )
+                }
+                placeholder={quickNoteModal.notePlaceholder}
+                className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:bg-white transition resize-none"
+              />
+
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setQuickNoteModal(null)}
+                  className="px-4 py-2 rounded-xl text-slate-600 hover:bg-slate-100 text-xs font-bold transition cursor-pointer"
+                >
+                  Отмена
+                </button>
+                {quickNoteModal.isPrompt && (
+                  <button
+                    type="button"
+                    onClick={() => handleSaveQuickNote(false)}
+                    className="px-3.5 py-2 rounded-xl text-slate-500 hover:bg-slate-100 text-xs font-semibold transition cursor-pointer"
+                  >
+                    Без примечания
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => handleSaveQuickNote(true)}
+                  className="px-4 py-2 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold shadow-md shadow-teal-600/20 transition cursor-pointer"
+                >
+                  Сохранить
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 5. Модальное окно создания / редактирования клиента */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 relative animate-in fade-in zoom-in-95 duration-200">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 relative animate-in fade-in zoom-in-95 duration-200 my-8">
             {/* Крестик закрытия */}
             <button
               type="button"
@@ -900,7 +1307,7 @@ export default function ClientsCallingTab({ onCountChange }: ClientsCallingTabPr
                 </h3>
                 <p className="text-xs text-slate-500">
                   {editingClient
-                    ? 'Измените данные клиента или номера телефонов'
+                    ? 'Измените данные клиента, категорию или контактные номера'
                     : 'Заполните информацию о контрагенте и контактные номера'}
                 </p>
               </div>
@@ -950,59 +1357,56 @@ export default function ClientsCallingTab({ onCountChange }: ClientsCallingTabPr
                 <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
                   Категория клиента <span className="text-rose-500">*</span>
                 </label>
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setFormCategory('WORKING')}
-                    className={`p-2.5 rounded-xl border text-xs font-bold flex items-center gap-2 transition cursor-pointer ${
-                      formCategory === 'WORKING'
-                        ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
-                        : 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
-                    }`}
-                  >
-                    <CheckCircle2 className="w-4 h-4 shrink-0" />
-                    <span>Работаем</span>
-                  </button>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  {MAIN_CATEGORIES.map((catKey) => {
+                    const cfg = CATEGORIES_CONFIG[catKey];
+                    if (!cfg) return null;
+                    const Icon = cfg.icon;
+                    const isSelected = formCategory === catKey;
 
-                  <button
-                    type="button"
-                    onClick={() => setFormCategory('NOT_WORKING')}
-                    className={`p-2.5 rounded-xl border text-xs font-bold flex items-center gap-2 transition cursor-pointer ${
-                      formCategory === 'NOT_WORKING'
-                        ? 'bg-slate-700 text-white border-slate-700 shadow-sm'
-                        : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200'
-                    }`}
-                  >
-                    <Users className="w-4 h-4 shrink-0" />
-                    <span>Не работаем</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setFormCategory('STOPPED')}
-                    className={`p-2.5 rounded-xl border text-xs font-bold flex items-center gap-2 transition cursor-pointer ${
-                      formCategory === 'STOPPED'
-                        ? 'bg-amber-600 text-white border-amber-600 shadow-sm'
-                        : 'bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100'
-                    }`}
-                  >
-                    <AlertTriangle className="w-4 h-4 shrink-0" />
-                    <span>Перестали</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => setFormCategory('BLACKLIST')}
-                    className={`p-2.5 rounded-xl border text-xs font-bold flex items-center gap-2 transition cursor-pointer ${
-                      formCategory === 'BLACKLIST'
-                        ? 'bg-rose-600 text-white border-rose-600 shadow-sm'
-                        : 'bg-rose-50 text-rose-800 border-rose-200 hover:bg-rose-100'
-                    }`}
-                  >
-                    <Ban className="w-4 h-4 shrink-0" />
-                    <span>ЧС</span>
-                  </button>
+                    return (
+                      <button
+                        key={catKey}
+                        type="button"
+                        onClick={() => setFormCategory(catKey)}
+                        className={`p-2.5 rounded-xl border text-xs font-bold flex flex-col items-center justify-center gap-1 transition cursor-pointer text-center ${
+                          isSelected
+                            ? `${cfg.activeBg} shadow-sm ring-1 ring-slate-900/10`
+                            : `${cfg.color}`
+                        }`}
+                      >
+                        <Icon className="w-4 h-4 shrink-0" />
+                        <span className="leading-tight">{cfg.label}</span>
+                      </button>
+                    );
+                  })}
                 </div>
+              </div>
+
+              {/* Поле примечания / причины (динамически в зависимости от категории) */}
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+                    {CATEGORIES_CONFIG[formCategory]?.hasNote
+                      ? CATEGORIES_CONFIG[formCategory]?.noteLabel
+                      : 'Примечание к клиенту (необязательно)'}
+                  </label>
+                  {CATEGORIES_CONFIG[formCategory]?.hasNote && (
+                    <span className="text-[10px] text-teal-600 font-semibold">
+                      Показывается при наведении
+                    </span>
+                  )}
+                </div>
+                <input
+                  type="text"
+                  value={formComment}
+                  onChange={(e) => setFormComment(e.target.value)}
+                  placeholder={
+                    CATEGORIES_CONFIG[formCategory]?.notePlaceholder ||
+                    'Впишите примечание или дополнительную информацию...'
+                  }
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:bg-white transition"
+                />
               </div>
 
               {/* Номера телефонов (динамический список) */}
@@ -1021,7 +1425,7 @@ export default function ClientsCallingTab({ onCountChange }: ClientsCallingTabPr
                   </button>
                 </div>
 
-                <div className="space-y-2 max-h-44 overflow-y-auto pr-1">
+                <div className="space-y-2 max-h-36 overflow-y-auto pr-1">
                   {formPhones.map((phone, idx) => (
                     <div key={idx} className="flex items-center gap-2">
                       <div className="relative flex-1">
