@@ -5,6 +5,7 @@ import api from '@/lib/api';
 import toast from 'react-hot-toast';
 import {
   Phone,
+  Mail,
   Plus,
   Search,
   CheckCircle2,
@@ -34,6 +35,7 @@ export interface Client {
   name: string;
   city: string;
   phones: string[];
+  emails?: string[];
   category: string;
   comment?: string | null;
   createdAt: string;
@@ -214,12 +216,18 @@ export default function ClientsCallingTab({ onCountChange }: ClientsCallingTabPr
   const [formCategory, setFormCategory] = useState<string>('ON_DEMAND');
   const [formComment, setFormComment] = useState('');
   const [formPhones, setFormPhones] = useState<string[]>(['']);
+  const [formEmails, setFormEmails] = useState<string[]>(['']);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Быстрое добавление номера прямо в строке клиента
   const [quickPhoneClientId, setQuickPhoneClientId] = useState<string | null>(null);
   const [quickPhoneValue, setQuickPhoneValue] = useState('');
   const [isAddingQuickPhone, setIsAddingQuickPhone] = useState(false);
+
+  // Быстрое добавление email прямо в строке клиента
+  const [quickEmailClientId, setQuickEmailClientId] = useState<string | null>(null);
+  const [quickEmailValue, setQuickEmailValue] = useState('');
+  const [isAddingQuickEmail, setIsAddingQuickEmail] = useState(false);
 
   // Модальное окно быстрого ввода примечания / причины отказа / причины ЧС
   const [quickNoteModal, setQuickNoteModal] = useState<{
@@ -234,7 +242,7 @@ export default function ClientsCallingTab({ onCountChange }: ClientsCallingTabPr
   } | null>(null);
 
   // Быстрое копирование
-  const [copiedPhone, setCopiedPhone] = useState<string | null>(null);
+  const [copiedText, setCopiedText] = useState<string | null>(null);
 
   // Загрузка данных
   const fetchClients = async (silent = false) => {
@@ -357,14 +365,14 @@ export default function ClientsCallingTab({ onCountChange }: ClientsCallingTabPr
     };
   }, []);
 
-  // Копирование телефона
-  const handleCopyPhone = (phone: string, e: React.MouseEvent) => {
+  // Копирование телефона или почты
+  const handleCopyText = (text: string, type: 'phone' | 'email', e: React.MouseEvent) => {
     e.stopPropagation();
-    navigator.clipboard.writeText(phone);
-    setCopiedPhone(phone);
-    toast.success(`Номер скопирован: ${phone}`, { duration: 1500 });
+    navigator.clipboard.writeText(text);
+    setCopiedText(text);
+    toast.success(`${type === 'email' ? 'Email скопирован' : 'Номер скопирован'}: ${text}`, { duration: 1500 });
     setTimeout(() => {
-      setCopiedPhone((prev) => (prev === phone ? null : prev));
+      setCopiedText((prev) => (prev === text ? null : prev));
     }, 2000);
   };
 
@@ -458,6 +466,25 @@ export default function ClientsCallingTab({ onCountChange }: ClientsCallingTabPr
     }
   };
 
+  // Быстрое добавление email в строке
+  const handleAddQuickEmail = async (clientId: string) => {
+    if (!quickEmailValue.trim()) return;
+    try {
+      setIsAddingQuickEmail(true);
+      await api.post(`/api/clients/${clientId}/emails`, {
+        email: quickEmailValue.trim(),
+      });
+      toast.success('Email добавлен!');
+      setQuickEmailClientId(null);
+      setQuickEmailValue('');
+      fetchClients(true);
+    } catch (err: any) {
+      toast.error(err.response?.data?.error || 'Ошибка добавления email');
+    } finally {
+      setIsAddingQuickEmail(false);
+    }
+  };
+
   // Удаление номера у клиента
   const handleDeletePhone = async (clientId: string, phone: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -470,6 +497,21 @@ export default function ClientsCallingTab({ onCountChange }: ClientsCallingTabPr
       fetchClients(true);
     } catch (err: any) {
       toast.error('Не удалось удалить номер');
+    }
+  };
+
+  // Удаление email у клиента
+  const handleDeleteEmail = async (clientId: string, email: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!confirm(`Удалить email ${email} у этого клиента?`)) return;
+    try {
+      await api.delete(`/api/clients/${clientId}/emails`, {
+        data: { email },
+      });
+      toast.success('Email удален');
+      fetchClients(true);
+    } catch (err: any) {
+      toast.error('Не удалось удалить email');
     }
   };
 
@@ -495,6 +537,7 @@ export default function ClientsCallingTab({ onCountChange }: ClientsCallingTabPr
     setFormCategory('ON_DEMAND');
     setFormComment('');
     setFormPhones(['']);
+    setFormEmails([]);
     setIsModalOpen(true);
   };
 
@@ -504,7 +547,8 @@ export default function ClientsCallingTab({ onCountChange }: ClientsCallingTabPr
     setFormCity(client.city);
     setFormCategory(client.category || 'ON_DEMAND');
     setFormComment(client.comment || '');
-    setFormPhones(client.phones?.length ? [...client.phones] : ['']);
+    setFormPhones(client.phones?.length ? [...client.phones] : []);
+    setFormEmails(client.emails?.length ? [...client.emails] : []);
     setIsModalOpen(true);
   };
 
@@ -525,6 +569,23 @@ export default function ClientsCallingTab({ onCountChange }: ClientsCallingTabPr
     setFormPhones((prev) => prev.filter((_, i) => i !== index));
   };
 
+  // Добавление/удаление полей email в форме
+  const handleAddEmailField = () => {
+    setFormEmails((prev) => [...prev, '']);
+  };
+
+  const handleEmailFieldChange = (index: number, val: string) => {
+    setFormEmails((prev) => {
+      const copy = [...prev];
+      copy[index] = val;
+      return copy;
+    });
+  };
+
+  const handleRemoveEmailField = (index: number) => {
+    setFormEmails((prev) => prev.filter((_, i) => i !== index));
+  };
+
   // Сохранение формы
   const handleSubmitForm = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -541,6 +602,10 @@ export default function ClientsCallingTab({ onCountChange }: ClientsCallingTabPr
       .map((p) => p.trim())
       .filter(Boolean);
 
+    const cleanedEmails = formEmails
+      .map((e) => e.trim().toLowerCase())
+      .filter(Boolean);
+
     try {
       setIsSubmitting(true);
       const payload = {
@@ -549,6 +614,7 @@ export default function ClientsCallingTab({ onCountChange }: ClientsCallingTabPr
         category: formCategory,
         comment: formComment.trim() || null,
         phones: cleanedPhones,
+        emails: cleanedEmails,
       };
 
       if (editingClient) {
@@ -781,7 +847,7 @@ export default function ClientsCallingTab({ onCountChange }: ClientsCallingTabPr
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Поиск по названию, городу, телефону или примечанию..."
+              placeholder="Поиск по названию, городу, телефону, email или примечанию..."
               className="w-full pl-10 pr-9 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:bg-white transition"
             />
             {search && (
@@ -956,10 +1022,10 @@ export default function ClientsCallingTab({ onCountChange }: ClientsCallingTabPr
             <table className="w-full text-left text-xs border-collapse">
               <thead>
                 <tr className="bg-slate-50/80 border-b border-slate-200 text-slate-500 font-bold uppercase tracking-wider text-[11px]">
-                  <th className="py-3.5 px-4 w-[28%]">Название магазина / Контрагент</th>
-                  <th className="py-3.5 px-4 w-[14%]">Город</th>
-                  <th className="py-3.5 px-4 w-[22%]">Категория / Примечание</th>
-                  <th className="py-3.5 px-4 w-[28%]">Номера телефонов</th>
+                  <th className="py-3.5 px-4 w-[26%]">Название магазина / Контрагент</th>
+                  <th className="py-3.5 px-4 w-[13%]">Город</th>
+                  <th className="py-3.5 px-4 w-[21%]">Категория / Примечание</th>
+                  <th className="py-3.5 px-4 w-[32%]">Контакты (Телефон / Email)</th>
                   <th className="py-3.5 px-4 text-right w-[8%]">Действия</th>
                 </tr>
               </thead>
@@ -968,7 +1034,8 @@ export default function ClientsCallingTab({ onCountChange }: ClientsCallingTabPr
                   const cfg =
                     CATEGORIES_CONFIG[client.category as keyof typeof CATEGORIES_CONFIG] ||
                     CATEGORIES_CONFIG.ON_DEMAND;
-                  const isQuickAddOpen = quickPhoneClientId === client.id;
+                  const isQuickPhoneOpen = quickPhoneClientId === client.id;
+                  const isQuickEmailOpen = quickEmailClientId === client.id;
 
                   return (
                     <tr
@@ -1066,81 +1133,144 @@ export default function ClientsCallingTab({ onCountChange }: ClientsCallingTabPr
                         </div>
                       </td>
 
-                      {/* Номера телефонов */}
+                      {/* Контакты: Номера телефонов и Адреса Email */}
                       <td className="py-3.5 px-4 align-top">
                         <div className="space-y-1.5">
-                          {/* Список существующих номеров */}
+                          {/* Список существующих номеров и email */}
                           <div className="flex flex-wrap gap-1.5 items-center">
-                            {client.phones && client.phones.length > 0 ? (
-                              client.phones.map((phone, pIdx) => {
-                                const isCopied = copiedPhone === phone;
-                                const cleanDigits = phone.replace(/[^\d+]/g, '');
+                            {/* Номера телефонов */}
+                            {client.phones && client.phones.length > 0 && client.phones.map((phone, pIdx) => {
+                              const isCopied = copiedText === phone;
+                              const cleanDigits = phone.replace(/[^\d+]/g, '');
 
-                                return (
-                                  <div
-                                    key={pIdx}
-                                    className="inline-flex items-center gap-1 pl-2 pr-1.5 py-1 rounded-lg bg-teal-50/70 border border-teal-200 text-teal-950 text-xs font-semibold group/phone hover:bg-teal-100/70 transition shadow-2xs"
+                              return (
+                                <div
+                                  key={`p-${pIdx}`}
+                                  className="inline-flex items-center gap-1 pl-2 pr-1.5 py-1 rounded-lg bg-teal-50/70 border border-teal-200 text-teal-950 text-xs font-semibold group/phone hover:bg-teal-100/70 transition shadow-2xs"
+                                >
+                                  <a
+                                    href={`tel:${cleanDigits}`}
+                                    className="flex items-center gap-1 hover:text-teal-700 hover:underline"
+                                    title="Позвонить"
                                   >
-                                    <a
-                                      href={`tel:${cleanDigits}`}
-                                      className="flex items-center gap-1 hover:text-teal-700 hover:underline"
-                                      title="Позвонить"
-                                    >
-                                      <Phone className="w-3 h-3 text-teal-600 shrink-0" />
-                                      <span>{phone}</span>
-                                    </a>
+                                    <Phone className="w-3 h-3 text-teal-600 shrink-0" />
+                                    <span>{phone}</span>
+                                  </a>
 
-                                    {/* Скопировать */}
-                                    <button
-                                      type="button"
-                                      onClick={(e) => handleCopyPhone(phone, e)}
-                                      className="p-1 text-slate-400 hover:text-teal-700 rounded transition cursor-pointer"
-                                      title="Скопировать номер"
-                                    >
-                                      {isCopied ? (
-                                        <Check className="w-3 h-3 text-emerald-600" />
-                                      ) : (
-                                        <Copy className="w-3 h-3" />
-                                      )}
-                                    </button>
+                                  {/* Скопировать */}
+                                  <button
+                                    type="button"
+                                    onClick={(e) => handleCopyText(phone, 'phone', e)}
+                                    className="p-1 text-slate-400 hover:text-teal-700 rounded transition cursor-pointer"
+                                    title="Скопировать номер"
+                                  >
+                                    {isCopied ? (
+                                      <Check className="w-3 h-3 text-emerald-600" />
+                                    ) : (
+                                      <Copy className="w-3 h-3" />
+                                    )}
+                                  </button>
 
-                                    {/* Удалить конкретный номер */}
-                                    <button
-                                      type="button"
-                                      onClick={(e) => handleDeletePhone(client.id, phone, e)}
-                                      className="p-1 text-slate-300 hover:text-rose-600 rounded transition cursor-pointer opacity-50 group-hover/phone:opacity-100"
-                                      title="Удалить этот номер"
-                                    >
-                                      <X className="w-3 h-3" />
-                                    </button>
-                                  </div>
-                                );
-                              })
-                            ) : (
-                              <span className="text-slate-400 italic text-[11px]">
-                                Номера не указаны
-                              </span>
-                            )}
+                                  {/* Удалить конкретный номер */}
+                                  <button
+                                    type="button"
+                                    onClick={(e) => handleDeletePhone(client.id, phone, e)}
+                                    className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition cursor-pointer"
+                                    title="Удалить этот номер"
+                                  >
+                                    <X className="w-3 h-3" />
+                                  </button>
+                                </div>
+                              );
+                            })}
 
-                            {/* Кнопка быстрого добавления номера */}
-                            {!isQuickAddOpen && (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setQuickPhoneClientId(client.id);
-                                  setQuickPhoneValue('');
-                                }}
-                                className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-100 hover:bg-teal-50 hover:text-teal-700 text-slate-600 border border-dashed border-slate-300 hover:border-teal-300 text-xs font-medium transition cursor-pointer"
-                                title="Добавить номер телефона"
-                              >
-                                <Plus className="w-3 h-3" />
-                                <span>Добавить номер</span>
-                              </button>
+                            {/* Адреса Email */}
+                            {client.emails && client.emails.length > 0 && client.emails.map((email, eIdx) => {
+                              const isCopied = copiedText === email;
+
+                              return (
+                                <div
+                                  key={`e-${eIdx}`}
+                                  className="inline-flex items-center gap-1 pl-2 pr-1.5 py-1 rounded-lg bg-sky-50/80 border border-sky-200 text-sky-950 text-xs font-semibold group/email hover:bg-sky-100/80 transition shadow-2xs"
+                                >
+                                  <a
+                                    href={`mailto:${email}`}
+                                    className="flex items-center gap-1 hover:text-sky-700 hover:underline"
+                                    title="Отправить письмо на почту"
+                                  >
+                                    <Mail className="w-3 h-3 text-sky-600 shrink-0" />
+                                    <span>{email}</span>
+                                  </a>
+
+                                  {/* Скопировать */}
+                                  <button
+                                    type="button"
+                                    onClick={(e) => handleCopyText(email, 'email', e)}
+                                    className="p-1 text-slate-400 hover:text-sky-700 rounded transition cursor-pointer"
+                                    title="Скопировать email"
+                                  >
+                                    {isCopied ? (
+                                      <Check className="w-3 h-3 text-emerald-600" />
+                                    ) : (
+                                      <Copy className="w-3 h-3" />
+                                    )}
+                                  </button>
+
+                                  {/* Удалить конкретный email */}
+                                  <button
+                                    type="button"
+                                    onClick={(e) => handleDeleteEmail(client.id, email, e)}
+                                    className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition cursor-pointer"
+                                    title="Удалить этот email"
+                                  >
+                                    <X className="w-3 h-3" />
+                                  </button>
+                                </div>
+                              );
+                            })}
+
+                            {(!client.phones || client.phones.length === 0) &&
+                              (!client.emails || client.emails.length === 0) && (
+                                <span className="text-slate-400 italic text-[11px]">
+                                  Контакты не указаны
+                                </span>
+                              )}
+
+                            {/* Кнопки быстрого добавления телефона и email */}
+                            {!isQuickPhoneOpen && !isQuickEmailOpen && (
+                              <div className="inline-flex items-center gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setQuickPhoneClientId(client.id);
+                                    setQuickPhoneValue('');
+                                    setQuickEmailClientId(null);
+                                  }}
+                                  className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-100 hover:bg-teal-50 hover:text-teal-700 text-slate-600 border border-dashed border-slate-300 hover:border-teal-300 text-xs font-medium transition cursor-pointer"
+                                  title="Добавить номер телефона"
+                                >
+                                  <Plus className="w-3 h-3" />
+                                  <span>+ Телефон</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setQuickEmailClientId(client.id);
+                                    setQuickEmailValue('');
+                                    setQuickPhoneClientId(null);
+                                  }}
+                                  className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-100 hover:bg-sky-50 hover:text-sky-700 text-slate-600 border border-dashed border-slate-300 hover:border-sky-300 text-xs font-medium transition cursor-pointer"
+                                  title="Добавить электронную почту"
+                                >
+                                  <Plus className="w-3 h-3" />
+                                  <span>+ Email</span>
+                                </button>
+                              </div>
                             )}
                           </div>
 
-                          {/* Инлайн форма быстрого добавления номера */}
-                          {isQuickAddOpen && (
+                          {/* Инлайн форма быстрого добавления телефона */}
+                          {isQuickPhoneOpen && (
                             <div className="flex items-center gap-1.5 animate-in fade-in duration-150">
                               <input
                                 type="text"
@@ -1152,7 +1282,7 @@ export default function ClientsCallingTab({ onCountChange }: ClientsCallingTabPr
                                   if (e.key === 'Escape') setQuickPhoneClientId(null);
                                 }}
                                 placeholder="+7 (___) ___-__-__"
-                                className="px-2.5 py-1 text-xs bg-white border border-teal-400 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-teal-500 w-48 shadow-inner"
+                                className="px-2.5 py-1 text-xs bg-white border border-teal-400 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-teal-500 w-44 shadow-inner"
                               />
                               <button
                                 type="button"
@@ -1165,6 +1295,39 @@ export default function ClientsCallingTab({ onCountChange }: ClientsCallingTabPr
                               <button
                                 type="button"
                                 onClick={() => setQuickPhoneClientId(null)}
+                                className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition cursor-pointer"
+                              >
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          )}
+
+                          {/* Инлайн форма быстрого добавления email */}
+                          {isQuickEmailOpen && (
+                            <div className="flex items-center gap-1.5 animate-in fade-in duration-150">
+                              <input
+                                type="email"
+                                autoFocus
+                                value={quickEmailValue}
+                                onChange={(e) => setQuickEmailValue(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') handleAddQuickEmail(client.id);
+                                  if (e.key === 'Escape') setQuickEmailClientId(null);
+                                }}
+                                placeholder="zakaz@company.ru"
+                                className="px-2.5 py-1 text-xs bg-white border border-sky-400 rounded-lg text-slate-900 focus:outline-none focus:ring-2 focus:ring-sky-500 w-48 shadow-inner"
+                              />
+                              <button
+                                type="button"
+                                disabled={isAddingQuickEmail || !quickEmailValue.trim()}
+                                onClick={() => handleAddQuickEmail(client.id)}
+                                className="px-2.5 py-1 rounded-lg bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold transition disabled:opacity-50 cursor-pointer shadow-2xs"
+                              >
+                                {isAddingQuickEmail ? '...' : 'Сохранить'}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setQuickEmailClientId(null)}
                                 className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition cursor-pointer"
                               >
                                 <X className="w-3.5 h-3.5" />
@@ -1307,8 +1470,8 @@ export default function ClientsCallingTab({ onCountChange }: ClientsCallingTabPr
                 </h3>
                 <p className="text-xs text-slate-500">
                   {editingClient
-                    ? 'Измените данные клиента, категорию или контактные номера'
-                    : 'Заполните информацию о контрагенте и контактные номера'}
+                    ? 'Измените данные клиента, категорию или контакты'
+                    : 'Заполните информацию о контрагенте, телефоны или email'}
                 </p>
               </div>
             </div>
@@ -1412,8 +1575,9 @@ export default function ClientsCallingTab({ onCountChange }: ClientsCallingTabPr
               {/* Номера телефонов (динамический список) */}
               <div>
                 <div className="flex items-center justify-between mb-1.5">
-                  <label className="text-xs font-bold text-slate-700 uppercase tracking-wider">
-                    Номера телефонов
+                  <label className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+                    <Phone className="w-3.5 h-3.5 text-teal-600" />
+                    <span>Номера телефонов</span>
                   </label>
                   <button
                     type="button"
@@ -1425,32 +1589,104 @@ export default function ClientsCallingTab({ onCountChange }: ClientsCallingTabPr
                   </button>
                 </div>
 
-                <div className="space-y-2 max-h-36 overflow-y-auto pr-1">
-                  {formPhones.map((phone, idx) => (
-                    <div key={idx} className="flex items-center gap-2">
-                      <div className="relative flex-1">
-                        <Phone className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                        <input
-                          type="text"
-                          value={phone}
-                          onChange={(e) => handlePhoneFieldChange(idx, e.target.value)}
-                          placeholder={`Номер ${idx + 1} (например: 89224194014 или 20604)`}
-                          className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:bg-white transition"
-                        />
-                      </div>
-                      {formPhones.length > 1 && (
+                {formPhones.length === 0 ? (
+                  <div className="py-2.5 px-3 bg-slate-50 border border-dashed border-slate-200 rounded-xl flex items-center justify-between text-xs text-slate-500">
+                    <span>Номера телефонов не указаны</span>
+                    <button
+                      type="button"
+                      onClick={handleAddPhoneField}
+                      className="text-teal-600 hover:text-teal-700 font-bold flex items-center gap-1 cursor-pointer"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Добавить номер</span>
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-2 max-h-36 overflow-y-auto pr-1">
+                    {formPhones.map((phone, idx) => (
+                      <div key={idx} className="flex items-center gap-2">
+                        <div className="relative flex-1">
+                          <Phone className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                          <input
+                            type="text"
+                            value={phone}
+                            onChange={(e) => handlePhoneFieldChange(idx, e.target.value)}
+                            placeholder={`Номер ${idx + 1} (например: 89224194014 или 20604)`}
+                            className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:bg-white transition"
+                          />
+                        </div>
                         <button
                           type="button"
                           onClick={() => handleRemovePhoneField(idx)}
-                          className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition cursor-pointer"
-                          title="Удалить поле"
+                          className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition cursor-pointer shrink-0"
+                          title="Удалить этот номер"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
-                      )}
-                    </div>
-                  ))}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Электронная почта (Email) (динамический список) */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+                    <Mail className="w-3.5 h-3.5 text-sky-600" />
+                    <span>Электронная почта (Email)</span>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={handleAddEmailField}
+                    className="text-xs font-bold text-sky-600 hover:text-sky-700 flex items-center gap-1 cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Добавить email</span>
+                  </button>
                 </div>
+
+                {formEmails.length === 0 ? (
+                  <div className="py-2.5 px-3 bg-slate-50 border border-dashed border-slate-200 rounded-xl flex items-center justify-between text-xs text-slate-500">
+                    <span>Электронная почта не указана</span>
+                    <button
+                      type="button"
+                      onClick={handleAddEmailField}
+                      className="text-sky-600 hover:text-sky-700 font-bold flex items-center gap-1 cursor-pointer"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Добавить email</span>
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-2 max-h-36 overflow-y-auto pr-1">
+                    {formEmails.map((email, idx) => (
+                      <div key={idx} className="flex items-center gap-2">
+                        <div className="relative flex-1">
+                          <Mail className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                          <input
+                            type="email"
+                            value={email}
+                            onChange={(e) => handleEmailFieldChange(idx, e.target.value)}
+                            placeholder={`Email ${idx + 1} (например: opt@ribatrade.ru)`}
+                            className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:bg-white transition"
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveEmailField(idx)}
+                          className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition cursor-pointer shrink-0"
+                          title="Удалить этот email"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <p className="text-[11px] text-slate-400 mt-1 italic">
+                  * Можно указать только телефон, только email или оба контакта
+                </p>
               </div>
 
               {/* Кнопки действий */}
