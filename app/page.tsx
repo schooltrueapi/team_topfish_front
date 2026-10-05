@@ -40,6 +40,7 @@ export default function DashboardPage() {
    const [items, setItems] = useState<PlanItem[]>([])
    const [needsReview, setNeedsReview] = useState(false)
    const [reviewWeek, setReviewWeek] = useState<any>(null)
+   const [isReviewDismissed, setIsReviewDismissed] = useState(false)
    const [currentFilter, setCurrentFilter] = useState('all')
 
    // Главные вкладки страницы: Основной план vs Вторые новинки vs База обзвона vs Анализ финансов vs Тех. карты
@@ -161,11 +162,12 @@ export default function DashboardPage() {
          if (res.data.needsReview) {
             setNeedsReview(true)
             setReviewWeek(res.data.reviewWeek)
-            setCurrentWeek(null)
-            setItems([])
          } else {
             setNeedsReview(false)
             setReviewWeek(null)
+         }
+
+         if (res.data.currentWeek) {
             setCurrentWeek(res.data.currentWeek)
 
             // Если сейчас просматривается текущая неделя, обновляем её позиции
@@ -528,7 +530,12 @@ export default function DashboardPage() {
    const handleReviewConfirmed = () => {
       setNeedsReview(false)
       setReviewWeek(null)
+      setIsReviewDismissed(false)
       fetchCurrentWeek()
+   }
+
+   const handleCloseReview = () => {
+      setIsReviewDismissed(true)
    }
 
    const activeItems = items.filter((i) => !i.isDeleted)
@@ -574,6 +581,36 @@ export default function DashboardPage() {
          />
 
          <main className='max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6'>
+            {/* Напоминание о необходимости подвести итоги недели, если модалка была закрыта */}
+            {needsReview && reviewWeek && isReviewDismissed && (
+               <div className='mb-4 p-4 rounded-2xl bg-gradient-to-r from-amber-500/10 via-orange-500/10 to-amber-500/10 border border-amber-300 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3'>
+                  <div className='flex items-center gap-3'>
+                     <div className='w-9 h-9 rounded-xl bg-amber-500 text-white flex items-center justify-center font-bold shrink-0 shadow-xs'>
+                        ⚠️
+                     </div>
+                     <div>
+                        <div className='font-bold text-amber-950 text-sm flex items-center gap-2'>
+                           <span>Итоги недели №{reviewWeek.weekNumber} ({reviewWeek.year}) не подведены</span>
+                           <span className='px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-200 text-amber-900'>
+                              Чеклист отложен
+                           </span>
+                        </div>
+                        <p className='text-amber-800 text-xs mt-0.5'>
+                           Вы можете продолжить работу с планом, но перед началом полноценного цикла контроля рекомендуется зафиксировать результаты прошлой недели.
+                        </p>
+                     </div>
+                  </div>
+                  <button
+                     type='button'
+                     onClick={() => setIsReviewDismissed(false)}
+                     className='px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold shrink-0 transition flex items-center justify-center gap-1.5 shadow-xs cursor-pointer'
+                  >
+                     <span>Заполнить итоги недели</span>
+                     <ArrowRight className='w-4 h-4' />
+                  </button>
+               </div>
+            )}
+
             {/* Главный переключатель вкладок: Основной план производства vs Вторые новинки (Отработка) */}
             <div className='flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6 bg-white p-2 rounded-2xl border border-slate-200 shadow-xs'>
                <div className='flex items-center gap-1.5 flex-wrap'>
@@ -706,12 +743,12 @@ export default function DashboardPage() {
                   {activeTab === 'main_plan'
                      ? 'Чеклист 1С • Остатки и распределение'
                      : activeTab === 'trial_novelties'
-                     ? 'Внутренний банк идей • Не попадает в прайс клиентов'
-                     : activeTab === 'finance'
-                     ? 'Финансовая оценка складских остатков • Оптовый прайс'
-                     : activeTab === 'tech_cards'
-                     ? 'Технологические карты • Справочник ингредиентов, нормы и контроль цеха'
-                     : 'База клиентов и контрагентов • Обзвон и контакты'}
+                       ? 'Внутренний банк идей • Не попадает в прайс клиентов'
+                       : activeTab === 'finance'
+                         ? 'Финансовая оценка складских остатков • Оптовый прайс'
+                         : activeTab === 'tech_cards'
+                           ? 'Технологические карты • Справочник ингредиентов, нормы и контроль цеха'
+                           : 'База клиентов и контрагентов • Обзвон и контакты'}
                </div>
             </div>
 
@@ -839,11 +876,12 @@ export default function DashboardPage() {
             )}
          </main>
 
-         {/* Блокирующее окно подведения итогов по понедельникам */}
-         {needsReview && reviewWeek && (
+         {/* Окно подведения итогов по понедельникам */}
+         {needsReview && reviewWeek && !isReviewDismissed && (
             <ReviewModal
                reviewWeek={reviewWeek}
                onReviewConfirmed={handleReviewConfirmed}
+               onClose={handleCloseReview}
             />
          )}
 

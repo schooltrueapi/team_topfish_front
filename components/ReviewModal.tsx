@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import api from '@/lib/api'
 import toast from 'react-hot-toast'
 import {
@@ -11,6 +11,7 @@ import {
    HelpCircle,
    ArrowRight,
    Sparkles,
+   X,
 } from 'lucide-react'
 
 interface PlannedItem {
@@ -30,13 +31,26 @@ interface ReviewModalProps {
       plannedItems: PlannedItem[]
    }
    onReviewConfirmed: () => void
+   onClose?: () => void
 }
 
 export default function ReviewModal({
    reviewWeek,
    onReviewConfirmed,
+   onClose,
 }: ReviewModalProps) {
    const items = reviewWeek.plannedItems || []
+
+   // Закрытие по Escape
+   useEffect(() => {
+      const handleKeyDown = (e: KeyboardEvent) => {
+         if (e.key === 'Escape' && onClose) {
+            onClose()
+         }
+      }
+      window.addEventListener('keydown', handleKeyDown)
+      return () => window.removeEventListener('keydown', handleKeyDown)
+   }, [onClose])
 
    // Состояние результатов по каждому ID: { [id]: { status: string, comment: string } }
    const [outcomes, setOutcomes] = useState<
@@ -104,27 +118,47 @@ export default function ReviewModal({
    }
 
    return (
-      <div className='fixed inset-0 z-50 overflow-y-auto bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 sm:p-6'>
+      <div
+         className='fixed inset-0 z-50 overflow-y-auto bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 sm:p-6'
+         onClick={(e) => {
+            if (e.target === e.currentTarget && onClose) {
+               onClose()
+            }
+         }}
+      >
          <div className='bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200'>
-            {/* Шапка модалки (Блокирующая) */}
+            {/* Шапка модалки */}
             <div className='p-6 bg-gradient-to-r from-amber-500 via-amber-600 to-orange-600 text-white flex-shrink-0'>
-               <div className='flex items-center gap-3'>
-                  <div className='w-12 h-12 rounded-xl bg-white/20 backdrop-blur flex items-center justify-center text-white text-2xl shadow-inner'>
-                     ⚠️
+               <div className='flex items-start justify-between gap-3'>
+                  <div className='flex items-center gap-3'>
+                     <div className='w-12 h-12 rounded-xl bg-white/20 backdrop-blur flex items-center justify-center text-white text-2xl shadow-inner shrink-0'>
+                        ⚠️
+                     </div>
+                     <div>
+                        <span className='text-xs uppercase font-bold tracking-wider px-2 py-0.5 rounded bg-white/20 text-white inline-block mb-1'>
+                           Контроль цеха • Понедельник
+                        </span>
+                        <h2 className='text-xl sm:text-2xl font-black tracking-tight'>
+                           Давайте подведем итоги прошедшей недели!
+                        </h2>
+                        <p className='text-amber-100 text-xs sm:text-sm mt-0.5'>
+                           Неделя №{reviewWeek.weekNumber} ({reviewWeek.year} год).
+                           Укажите факт по каждой запланированной позиции, чтобы
+                           открыть новую неделю.
+                        </p>
+                     </div>
                   </div>
-                  <div>
-                     <span className='text-xs uppercase font-bold tracking-wider px-2 py-0.5 rounded bg-white/20 text-white inline-block mb-1'>
-                        Контроль цеха • Понедельник
-                     </span>
-                     <h2 className='text-2xl font-black tracking-tight'>
-                        Давайте подведем итоги прошедшей недели!
-                     </h2>
-                     <p className='text-amber-100 text-xs sm:text-sm mt-0.5'>
-                        Неделя №{reviewWeek.weekNumber} ({reviewWeek.year} год).
-                        Укажите факт по каждой запланированной позиции, чтобы
-                        открыть новую неделю.
-                     </p>
-                  </div>
+
+                  {onClose && (
+                     <button
+                        type='button'
+                        onClick={onClose}
+                        className='p-2 rounded-xl bg-white/10 hover:bg-white/20 text-white transition shrink-0 cursor-pointer'
+                        title='Закрыть окно (можно заполнить позже)'
+                     >
+                        <X className='w-5 h-5' />
+                     </button>
+                  )}
                </div>
 
                {/* Прогресс-бар заполнения */}
@@ -271,7 +305,7 @@ export default function ReviewModal({
                })}
             </div>
 
-            {/* Футер модалки с блокирующей кнопкой */}
+            {/* Футер модалки */}
             <div className='p-4 sm:p-6 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-4 flex-shrink-0'>
                <div className='text-xs text-slate-500 text-center sm:text-left'>
                   {!isAllFilled ? (
@@ -287,21 +321,33 @@ export default function ReviewModal({
                   )}
                </div>
 
-               <button
-                  type='button'
-                  disabled={!isAllFilled || isSubmitting}
-                  onClick={handleSubmit}
-                  className='w-full sm:w-auto px-6 py-2.5 rounded-xl font-bold text-sm bg-gradient-to-r from-emerald-600 to-teal-600 text-white hover:from-emerald-700 hover:to-teal-700 disabled:opacity-40 disabled:cursor-not-allowed shadow-md shadow-emerald-600/20 flex items-center justify-center gap-2 transition'
-               >
-                  {isSubmitting ? (
-                     <span>Сохранение итогов...</span>
-                  ) : (
-                     <>
-                        <span>Подтвердить итоги недели</span>
-                        <ArrowRight className='w-4 h-4' />
-                     </>
+               <div className='flex items-center gap-2.5 w-full sm:w-auto'>
+                  {onClose && (
+                     <button
+                        type='button'
+                        onClick={onClose}
+                        className='w-full sm:w-auto px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm bg-white border border-slate-300 text-slate-700 hover:bg-slate-100 transition shadow-2xs cursor-pointer'
+                     >
+                        Заполнить позже
+                     </button>
                   )}
-               </button>
+
+                  <button
+                     type='button'
+                     disabled={!isAllFilled || isSubmitting}
+                     onClick={handleSubmit}
+                     className='w-full sm:w-auto px-6 py-2.5 rounded-xl font-bold text-sm bg-gradient-to-r from-emerald-600 to-teal-600 text-white hover:from-emerald-700 hover:to-teal-700 disabled:opacity-40 disabled:cursor-not-allowed shadow-md shadow-emerald-600/20 flex items-center justify-center gap-2 transition cursor-pointer'
+                  >
+                     {isSubmitting ? (
+                        <span>Сохранение итогов...</span>
+                     ) : (
+                        <>
+                           <span>Подтвердить итоги недели</span>
+                           <ArrowRight className='w-4 h-4' />
+                        </>
+                     )}
+                  </button>
+               </div>
             </div>
          </div>
       </div>
