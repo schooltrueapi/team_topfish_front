@@ -540,8 +540,12 @@ export default function DashboardPage() {
    const hitsCount = activeItems.filter(
       (i) => i.smartMeta?.tag === 'HIT_REPEAT'
    ).length
+   const isConfirmedWeek =
+      displayWeek?.status && displayWeek.status !== 'PLANNING'
    const longTimeCount = activeItems.filter(
-      (i) => i.smartMeta?.tag === 'LONG_TIME_NO_PLAN'
+      (i) =>
+         i.smartMeta?.tag === 'LONG_TIME_NO_PLAN' &&
+         !(isConfirmedWeek && i.isPlanned)
    ).length
    const unfinishedCount = activeItems.filter(
       (i) => i.smartMeta?.tag === 'LAST_WEEK_UNFINISHED'

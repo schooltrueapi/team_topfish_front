@@ -345,6 +345,7 @@ export default function Checklist({
          return false
       if (currentFilter === 'longTime') {
          if (item.smartMeta?.tag !== 'LONG_TIME_NO_PLAN') return false
+         if (weekStatus !== 'PLANNING' && item.isPlanned) return false
          const cw = item.smartMeta?.consecutiveWeeks || 2
          if (longTimeDurationFilter === '2' && cw > 2) return false
          if (longTimeDurationFilter === '3' && cw !== 3) return false
@@ -440,7 +441,9 @@ export default function Checklist({
       (i) => i.smartMeta?.tag === 'STAGNANT_STOCK'
    ).length
    const longTimeCount = activeItems.filter(
-      (i) => i.smartMeta?.tag === 'LONG_TIME_NO_PLAN'
+      (i) =>
+         i.smartMeta?.tag === 'LONG_TIME_NO_PLAN' &&
+         !(weekStatus !== 'PLANNING' && i.isPlanned)
    ).length
    const unfinishedCount = activeItems.filter(
       (i) => i.smartMeta?.tag === 'LAST_WEEK_UNFINISHED'
@@ -1569,7 +1572,8 @@ export default function Checklist({
                         const isUnfinished =
                            item.smartMeta?.tag === 'LAST_WEEK_UNFINISHED'
                         const isLongTime =
-                           item.smartMeta?.tag === 'LONG_TIME_NO_PLAN'
+                           item.smartMeta?.tag === 'LONG_TIME_NO_PLAN' &&
+                           !(weekStatus !== 'PLANNING' && item.isPlanned)
                         const isStagnant =
                            item.smartMeta?.tag === 'STAGNANT_STOCK'
 
