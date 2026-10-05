@@ -25,14 +25,27 @@ import {
    FileText,
    Clock,
    Check,
+   Play,
+   Video,
+   Film,
+   ChevronLeft,
+   ChevronRight,
 } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
+
+export interface MediaItem {
+   url: string
+   type: 'image' | 'video'
+   name?: string
+   size?: number
+}
 
 export interface TrialNovelty {
    id: string
    name: string
    description?: string | null
    imageUrl?: string | null
+   mediaFiles?: MediaItem[] | null
    category?: string | null
    status: 'IDEA' | 'IN_TRIAL' | 'TESTED' | 'FAILED' | string
    trialWeekId?: string | null
@@ -85,16 +98,22 @@ export default function TrialNoveltiesTab({
    const [completingItem, setCompletingItem] = useState<TrialNovelty | null>(
       null
    )
-   const [lightboxImage, setLightboxImage] = useState<{
-      url: string
+   const [activeGallery, setActiveGallery] = useState<{
       title: string
+      items: MediaItem[]
+      index: number
    } | null>(null)
 
    // Форма добавления/редактирования
    const [formName, setFormName] = useState('')
    const [formCategory, setFormCategory] = useState('')
-   const [formFile, setFormFile] = useState<File | null>(null)
-   const [formPreview, setFormPreview] = useState<string | null>(null)
+   const [existingMedia, setExistingMedia] = useState<MediaItem[]>([])
+   const [newMediaFiles, setNewMediaFiles] = useState<{
+      id: string
+      file: File
+      preview: string
+      type: 'image' | 'video'
+   }[]>([])
    const [formAddToPlan, setFormAddToPlan] = useState(false)
    const [isSubmitting, setIsSubmitting] = useState(false)
    const fileInputRef = useRef<HTMLInputElement | null>(null)
@@ -106,6 +125,38 @@ export default function TrialNoveltiesTab({
    const [completeComment, setCompleteComment] = useState('')
    const [completeReturnToIdeas, setCompleteReturnToIdeas] = useState(false)
    const [isCompleting, setIsCompleting] = useState(false)
+
+   // Горячие клавиши для галереи (Esc, Стрелки влево/вправо)
+   useEffect(() => {
+      const handleKeyDown = (e: KeyboardEvent) => {
+         if (!activeGallery) return
+         if (e.key === 'Escape') {
+            setActiveGallery(null)
+         } else if (e.key === 'ArrowRight' && activeGallery.items.length > 1) {
+            setActiveGallery((prev) =>
+               prev
+                  ? {
+                       ...prev,
+                       index: (prev.index + 1) % prev.items.length,
+                    }
+                  : null
+            )
+         } else if (e.key === 'ArrowLeft' && activeGallery.items.length > 1) {
+            setActiveGallery((prev) =>
+               prev
+                  ? {
+                       ...prev,
+                       index:
+                          (prev.index - 1 + prev.items.length) %
+                          prev.items.length,
+                    }
+                  : null
+            )
+         }
+      }
+      window.addEventListener('keydown', handleKeyDown)
+      return () => window.removeEventListener('keydown', handleKeyDown)
+   }, [activeGallery])
 
    // Загрузка новинок с бэкенда
    const fetchItems = async () => {
@@ -140,22 +191,24 @@ export default function TrialNoveltiesTab({
       fetchItems()
    }, [])
 
-   // Вспомогательная функция для формирования правильного URL картинки
-   const getFullImageUrl = (path?: string | null) => {
-      if (!path) return null
+   // Вспомогательная функция для формирования правильного URL фото и видео
+   const getFullMediaUrl = (path?: string | null) => {
+      if (!path) return ''
       if (path.startsWith('http://') || path.startsWith('https://')) return path
       const backendUrl =
          process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4001'
       return `${backendUrl.replace(/\/$/, '')}${path}`
    }
+   const getFullImageUrl = getFullMediaUrl
 
    // Открытие модалки создания
    const handleOpenCreate = () => {
       setEditingItem(null)
       setFormName('')
       setFormCategory('')
-      setFormFile(null)
-      setFormPreview(null)
+      setExistingMedia([])
+      newMediaFiles.forEach((m) => URL.revokeObjectURL(m.preview))
+      setNewMediaFiles([])
       setFormAddToPlan(false)
       setIsCreateModalOpen(true)
    }
@@ -165,20 +218,67 @@ export default function TrialNoveltiesTab({
       setEditingItem(item)
       setFormName(item.name)
       setFormCategory(item.category || '')
-      setFormFile(null)
-      setFormPreview(item.imageUrl ? getFullImageUrl(item.imageUrl) : null)
+      const media: MediaItem[] =
+         Array.isArray(item.mediaFiles) && item.mediaFiles.length > 0
+            ? [...item.mediaFiles]
+            : item.imageUrl
+              ? [{ url: item.imageUrl, type: 'image', name: 'Главное фото' }]
+              : []
+      setExistingMedia(media)
+      newMediaFiles.forEach((m) => URL.revokeObjectURL(m.preview))
+      setNewMediaFiles([])
       setFormAddToPlan(item.status === 'IN_TRIAL')
       setIsCreateModalOpen(true)
    }
 
-   // Обработка выбора файла изображения
+   // Обработка выбора файлов (неограниченно фото и видео)
    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0]
-      if (file) {
-         setFormFile(file)
-         const objectUrl = URL.createObjectURL(file)
-         setFormPreview(objectUrl)
+      const files = e.target.files
+      if (!files || files.length === 0) return
+
+      const added: {
+         id: string
+         file: File
+         preview: string
+         type: 'image' | 'video'
+      }[] = []
+
+      Array.from(files).forEach((file) => {
+         const isVideo = file.type.startsWith('video/')
+         const isImage = file.type.startsWith('image/')
+         if (!isImage && !isVideo) {
+            toast.error(
+               `Файл "${file.name}" не поддерживается (разрешены только фото и видео)`
+            )
+            return
+         }
+         const preview = URL.createObjectURL(file)
+         added.push({
+            id: Math.random().toString(36).substring(2, 9),
+            file,
+            preview,
+            type: isVideo ? 'video' : 'image',
+         })
+      })
+
+      if (added.length > 0) {
+         setNewMediaFiles((prev) => [...prev, ...added])
       }
+      if (fileInputRef.current) {
+         fileInputRef.current.value = ''
+      }
+   }
+
+   const handleRemoveExistingMedia = (index: number) => {
+      setExistingMedia((prev) => prev.filter((_, i) => i !== index))
+   }
+
+   const handleRemoveNewMedia = (id: string) => {
+      setNewMediaFiles((prev) => {
+         const found = prev.find((m) => m.id === id)
+         if (found) URL.revokeObjectURL(found.preview)
+         return prev.filter((m) => m.id !== id)
+      })
    }
 
    // Отправка формы (создание или редактирование)
@@ -194,9 +294,14 @@ export default function TrialNoveltiesTab({
          const formData = new FormData()
          formData.append('name', formName.trim())
          formData.append('category', formCategory.trim())
-         if (formFile) {
-            formData.append('image', formFile)
-         }
+
+         // Передаем оставшиеся существующие медиафайлы
+         formData.append('existingMedia', JSON.stringify(existingMedia))
+
+         // Передаем все новые файлы
+         newMediaFiles.forEach((m) => {
+            formData.append('media', m.file)
+         })
 
          if (editingItem) {
             await api.put(`/api/trial-novelties/${editingItem.id}`, formData, {
@@ -597,7 +702,26 @@ export default function TrialNoveltiesTab({
          ) : (
             <div className='grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5'>
                {filteredItems.map((item) => {
-                  const fullImg = getFullImageUrl(item.imageUrl)
+                  const allMedia: MediaItem[] =
+                     Array.isArray(item.mediaFiles) && item.mediaFiles.length > 0
+                        ? item.mediaFiles
+                        : item.imageUrl
+                          ? [{ url: item.imageUrl, type: 'image', name: 'Фото' }]
+                          : []
+
+                  const firstMedia = allMedia[0]
+                  const isVideoCover = firstMedia?.type === 'video'
+                  const coverUrl = firstMedia
+                     ? getFullMediaUrl(firstMedia.url)
+                     : null
+                  const totalCount = allMedia.length
+                  const videoCount = allMedia.filter(
+                     (m) => m.type === 'video'
+                  ).length
+                  const imageCount = allMedia.filter(
+                     (m) => m.type === 'image'
+                  ).length
+
                   const isInTrial = item.status === 'IN_TRIAL'
                   const isIdea = item.status === 'IDEA'
                   const isTested = item.status === 'TESTED'
@@ -613,28 +737,87 @@ export default function TrialNoveltiesTab({
                                 : 'border-slate-200 hover:border-slate-300'
                         }`}
                      >
-                        {/* 1. Блок фото / превью */}
+                        {/* 1. Блок фото / видео / медиа */}
                         <div className='relative aspect-[4/3] bg-slate-100 overflow-hidden select-none'>
-                           {fullImg ? (
-                              <img
-                                 src={fullImg}
-                                 alt={item.name}
+                           {coverUrl ? (
+                              <div
                                  onClick={() =>
-                                    setLightboxImage({
-                                       url: fullImg,
+                                    setActiveGallery({
                                        title: item.name,
+                                       items: allMedia,
+                                       index: 0,
                                     })
                                  }
-                                 className='w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 cursor-pointer'
-                              />
+                                 className='w-full h-full relative cursor-pointer group/media'
+                              >
+                                 {isVideoCover ? (
+                                    <div className='w-full h-full relative bg-slate-950 flex items-center justify-center'>
+                                       <video
+                                          src={coverUrl}
+                                          preload='metadata'
+                                          muted
+                                          playsInline
+                                          className='w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 opacity-90'
+                                       />
+                                       <div className='absolute inset-0 flex items-center justify-center bg-black/30 group-hover/media:bg-black/15 transition'>
+                                          <div className='w-12 h-12 rounded-full bg-white/95 text-slate-900 flex items-center justify-center shadow-xl group-hover/media:scale-110 transition'>
+                                             <Play className='w-6 h-6 fill-slate-900 translate-x-0.5' />
+                                          </div>
+                                       </div>
+                                    </div>
+                                 ) : (
+                                    <img
+                                       src={coverUrl}
+                                       alt={item.name}
+                                       className='w-full h-full object-cover group-hover:scale-105 transition-transform duration-500'
+                                    />
+                                 )}
+
+                                 {/* Бейдж счетчика медиа в углу */}
+                                 <div className='absolute bottom-3 right-3 flex items-center gap-1.5'>
+                                    {totalCount > 1 && (
+                                       <span className='inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-slate-950/80 backdrop-blur-xs text-white text-[10px] font-bold shadow-md'>
+                                          {videoCount > 0 && (
+                                             <span>🎥 {videoCount}</span>
+                                          )}
+                                          {videoCount > 0 &&
+                                             imageCount > 0 && <span>•</span>}
+                                          {imageCount > 0 && (
+                                             <span>📷 {imageCount}</span>
+                                          )}
+                                       </span>
+                                    )}
+
+                                    {/* Кнопка быстрого открытия галереи */}
+                                    <button
+                                       type='button'
+                                       onClick={(e) => {
+                                          e.stopPropagation()
+                                          setActiveGallery({
+                                             title: item.name,
+                                             items: allMedia,
+                                             index: 0,
+                                          })
+                                       }}
+                                       className='p-1.5 rounded-xl bg-slate-950/70 text-white hover:bg-slate-950 transition opacity-0 group-hover:opacity-100 shadow-md backdrop-blur-xs cursor-pointer'
+                                       title='Открыть просмотр'
+                                    >
+                                       {isVideoCover ? (
+                                          <Play className='w-4 h-4 fill-white' />
+                                       ) : (
+                                          <Eye className='w-4 h-4' />
+                                       )}
+                                    </button>
+                                 </div>
+                              </div>
                            ) : (
                               <div
-                                 onClick={() => setLightboxImage(null)}
+                                 onClick={() => {}}
                                  className='w-full h-full flex flex-col items-center justify-center bg-gradient-to-br from-slate-100 to-slate-200 text-slate-400 p-4 text-center cursor-default'
                               >
                                  <ImageIcon className='w-10 h-10 stroke-[1.5] text-slate-300 mb-1' />
                                  <span className='text-[11px] font-medium text-slate-400'>
-                                    Фото не загружено
+                                    Медиа не загружено
                                  </span>
                               </div>
                            )}
@@ -664,23 +847,6 @@ export default function TrialNoveltiesTab({
                                  </span>
                               )}
                            </div>
-
-                           {/* Кнопка быстрого зума фото */}
-                           {fullImg && (
-                              <button
-                                 type='button'
-                                 onClick={() =>
-                                    setLightboxImage({
-                                       url: fullImg,
-                                       title: item.name,
-                                    })
-                                 }
-                                 className='absolute bottom-3 right-3 p-2 rounded-xl bg-slate-950/70 text-white hover:bg-slate-950 transition opacity-0 group-hover:opacity-100 shadow-md backdrop-blur-xs cursor-pointer'
-                                 title='Открыть фото во весь экран'
-                              >
-                                 <Eye className='w-4 h-4' />
-                              </button>
-                           )}
 
                            {/* Категория (если указана) */}
                            {item.category && (
@@ -881,64 +1047,157 @@ export default function TrialNoveltiesTab({
                         </datalist>
                      </div>
 
-                     {/* Поле: Фотография (Загрузка файла в backend uploads/images) */}
+                     {/* Поле: Медиаматериалы (Загрузка неограниченно фото и видео) */}
                      <div>
-                        <label className='block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1'>
-                           Фотография новинки
-                        </label>
+                        <div className='flex items-center justify-between mb-1.5'>
+                           <label className='block text-xs font-bold text-slate-700 uppercase tracking-wider'>
+                              Медиаматериалы (фото и видео)
+                           </label>
+                           <span className='text-[11px] text-slate-400 font-medium'>
+                              {existingMedia.length + newMediaFiles.length > 0
+                                 ? `Выбрано: ${existingMedia.length + newMediaFiles.length}`
+                                 : 'Неограниченно'}
+                           </span>
+                        </div>
 
+                        {/* Скрытый input с multiple для фото и видео */}
                         <input
                            type='file'
                            ref={fileInputRef}
-                           accept='image/jpeg,image/png,image/webp'
+                           multiple
+                           accept='image/*,video/*'
                            onChange={handleFileChange}
                            className='hidden'
                         />
 
-                        {formPreview ? (
-                           <div className='relative aspect-[16/9] rounded-2xl overflow-hidden border border-slate-200 bg-slate-100 group'>
-                              <img
-                                 src={formPreview}
-                                 alt='Превью'
-                                 className='w-full h-full object-cover'
-                              />
-                              <div className='absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 transition flex items-center justify-center gap-2'>
-                                 <button
-                                    type='button'
-                                    onClick={() =>
-                                       fileInputRef.current?.click()
-                                    }
-                                    className='px-3 py-1.5 rounded-xl bg-white text-slate-900 text-xs font-bold hover:bg-slate-100 transition shadow-md cursor-pointer'
-                                 >
-                                    Заменить фото
-                                 </button>
-                                 <button
-                                    type='button'
-                                    onClick={() => {
-                                       setFormFile(null)
-                                       setFormPreview(null)
-                                    }}
-                                    className='p-1.5 rounded-xl bg-rose-600 text-white hover:bg-rose-700 transition shadow-md cursor-pointer'
-                                    title='Удалить фото'
-                                 >
-                                    <Trash2 className='w-4 h-4' />
-                                 </button>
+                        <div className='space-y-2.5'>
+                           {/* Сетка выбранных медиафайлов */}
+                           {(existingMedia.length > 0 ||
+                              newMediaFiles.length > 0) && (
+                              <div className='grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2.5 max-h-52 overflow-y-auto p-1.5 bg-slate-50 rounded-2xl border border-slate-200'>
+                                 {/* Существующие медиа на сервере */}
+                                 {existingMedia.map((media, idx) => {
+                                    const url = getFullMediaUrl(media.url)
+                                    const isVid = media.type === 'video'
+                                    return (
+                                       <div
+                                          key={`existing-${idx}`}
+                                          className='relative aspect-square rounded-xl overflow-hidden bg-slate-900 border border-slate-200 group'
+                                       >
+                                          {isVid ? (
+                                             <div className='w-full h-full relative flex items-center justify-center bg-slate-950'>
+                                                <video
+                                                   src={url}
+                                                   className='w-full h-full object-cover opacity-80'
+                                                   preload='metadata'
+                                                />
+                                                <div className='absolute inset-0 flex items-center justify-center pointer-events-none'>
+                                                   <div className='w-7 h-7 rounded-full bg-teal-600/90 text-white flex items-center justify-center shadow'>
+                                                      <Play className='w-3.5 h-3.5 fill-white translate-x-0.5' />
+                                                   </div>
+                                                </div>
+                                                <span className='absolute bottom-1 left-1 px-1.5 py-0.5 rounded bg-black/75 text-[9px] font-black text-teal-300 uppercase tracking-wider'>
+                                                   ВИДЕО
+                                                </span>
+                                             </div>
+                                          ) : (
+                                             <img
+                                                src={url}
+                                                alt='Превью'
+                                                className='w-full h-full object-cover'
+                                             />
+                                          )}
+                                          {idx === 0 && (
+                                             <span className='absolute top-1 left-1 px-1.5 py-0.5 rounded bg-teal-600/90 text-white text-[9px] font-bold'>
+                                                Обложка
+                                             </span>
+                                          )}
+                                          <button
+                                             type='button'
+                                             onClick={() =>
+                                                handleRemoveExistingMedia(idx)
+                                             }
+                                             className='absolute top-1 right-1 p-1 rounded-lg bg-rose-600 text-white hover:bg-rose-700 transition shadow opacity-90 group-hover:opacity-100 cursor-pointer'
+                                             title='Удалить'
+                                          >
+                                             <Trash2 className='w-3.5 h-3.5' />
+                                          </button>
+                                       </div>
+                                    )
+                                 })}
+
+                                 {/* Новые выбранные файлы */}
+                                 {newMediaFiles.map((m) => {
+                                    const isVid = m.type === 'video'
+                                    return (
+                                       <div
+                                          key={m.id}
+                                          className='relative aspect-square rounded-xl overflow-hidden bg-slate-900 border-2 border-teal-500/50 group'
+                                       >
+                                          {isVid ? (
+                                             <div className='w-full h-full relative flex items-center justify-center bg-slate-950'>
+                                                <video
+                                                   src={m.preview}
+                                                   className='w-full h-full object-cover opacity-80'
+                                                   preload='metadata'
+                                                />
+                                                <div className='absolute inset-0 flex items-center justify-center pointer-events-none'>
+                                                   <div className='w-7 h-7 rounded-full bg-amber-500/90 text-white flex items-center justify-center shadow'>
+                                                      <Play className='w-3.5 h-3.5 fill-white translate-x-0.5' />
+                                                   </div>
+                                                </div>
+                                                <span className='absolute bottom-1 left-1 px-1.5 py-0.5 rounded bg-black/75 text-[9px] font-black text-amber-300 uppercase tracking-wider'>
+                                                   НОВОЕ ВИДЕО
+                                                </span>
+                                             </div>
+                                          ) : (
+                                             <img
+                                                src={m.preview}
+                                                alt='Превью'
+                                                className='w-full h-full object-cover'
+                                             />
+                                          )}
+                                          <span className='absolute top-1 left-1 px-1.5 py-0.5 rounded bg-teal-600/90 text-white text-[9px] font-bold'>
+                                             Новое
+                                          </span>
+                                          <button
+                                             type='button'
+                                             onClick={() =>
+                                                handleRemoveNewMedia(m.id)
+                                             }
+                                             className='absolute top-1 right-1 p-1 rounded-lg bg-rose-600 text-white hover:bg-rose-700 transition shadow opacity-90 group-hover:opacity-100 cursor-pointer'
+                                             title='Удалить'
+                                          >
+                                             <Trash2 className='w-3.5 h-3.5' />
+                                          </button>
+                                       </div>
+                                    )
+                                 })}
                               </div>
-                           </div>
-                        ) : (
+                           )}
+
+                           {/* Кнопка добавления файлов */}
                            <div
                               onClick={() => fileInputRef.current?.click()}
-                              className='border-2 border-dashed border-slate-300 hover:border-teal-500 rounded-2xl p-5 text-center cursor-pointer transition bg-slate-50/50 hover:bg-teal-50/20 group'
+                              className='border-2 border-dashed border-slate-300 hover:border-teal-500 rounded-2xl p-4 text-center cursor-pointer transition bg-slate-50/50 hover:bg-teal-50/20 group'
                            >
-                              <Upload className='w-7 h-7 text-slate-400 group-hover:text-teal-600 mx-auto mb-2 transition' />
-                              <span className='text-xs font-bold text-slate-700 block'>
-                                 Нажмите для загрузки фото с компьютера
-                              </span>
-                              <span className='text-[11px] text-slate-400 block mt-0.5'>
-                                 JPG, PNG, WebP (хранятся в uploads/images)
+                              <div className='flex items-center justify-center gap-2 text-slate-500 group-hover:text-teal-600 mb-1 transition'>
+                                 <Upload className='w-5 h-5' />
+                                 <span className='text-xs font-bold text-slate-700 group-hover:text-teal-700'>
+                                    {existingMedia.length +
+                                       newMediaFiles.length >
+                                    0
+                                       ? '+ Добавить ещё фото или видео'
+                                       : 'Нажмите для выбора фото и видео'}
+                                 </span>
+                              </div>
+                              <span className='text-[11px] text-slate-400 block'>
+                                 Поддерживаются любые фото (JPG, PNG, WebP) и
+                                 видео (MP4, MOV, WebM). Можно выбрать сразу
+                                 несколько файлов!
                               </span>
                            </div>
-                        )}
+                        </div>
                      </div>
 
                      {/* Чекбокс: сразу включить в план недели */}
@@ -1092,36 +1351,186 @@ export default function TrialNoveltiesTab({
             </div>
          )}
 
-         {/* ═══ МОДАЛКА: ПРОСМОТР ФОТО В ПОЛНЫЙ ЭКРАН (LIGHTBOX) ═══ */}
-         {lightboxImage && (
+         {/* ═══ МОДАЛКА: ПРОСМОТР ФОТО И ВИДЕО (ГАЛЕРЕЯ / LIGHTBOX) ═══ */}
+         {activeGallery && (
             <div
-               onClick={() => setLightboxImage(null)}
-               className='fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-4 cursor-zoom-out'
+               onClick={() => setActiveGallery(null)}
+               className='fixed inset-0 z-50 bg-slate-950/95 backdrop-blur-md flex flex-col justify-between p-3 sm:p-5 cursor-default select-none'
             >
+               {/* 1. Верхняя панель управления */}
                <div
                   onClick={(e) => e.stopPropagation()}
-                  className='max-w-4xl max-h-[90vh] bg-slate-900 rounded-3xl overflow-hidden shadow-2xl border border-slate-700 flex flex-col relative'
+                  className='w-full max-w-5xl mx-auto flex items-center justify-between py-2.5 px-4 rounded-2xl bg-slate-900/80 backdrop-blur border border-slate-800 text-white z-10 shadow-xl'
                >
-                  <div className='p-4 bg-slate-950/80 backdrop-blur border-b border-slate-800 flex items-center justify-between text-white'>
-                     <span className='font-bold text-sm'>
-                        {lightboxImage.title}
-                     </span>
+                  <div className='flex items-center gap-3 min-w-0'>
+                     <h3 className='font-bold text-sm truncate'>
+                        {activeGallery.title}
+                     </h3>
+                     {activeGallery.items.length > 0 && (
+                        <span className='px-2.5 py-0.5 rounded-full bg-slate-800 text-[11px] font-semibold text-slate-300 shrink-0'>
+                           {activeGallery.index + 1} из{' '}
+                           {activeGallery.items.length}
+                        </span>
+                     )}
+                     {activeGallery.items[activeGallery.index]?.type ===
+                     'video' ? (
+                        <span className='px-2 py-0.5 rounded-md bg-teal-500/20 text-teal-300 text-[10px] font-bold uppercase tracking-wider border border-teal-500/30'>
+                           🎥 Видео
+                        </span>
+                     ) : (
+                        <span className='px-2 py-0.5 rounded-md bg-blue-500/20 text-blue-300 text-[10px] font-bold uppercase tracking-wider border border-blue-500/30'>
+                           📷 Фото
+                        </span>
+                     )}
+                  </div>
+
+                  <div className='flex items-center gap-2'>
                      <button
                         type='button'
-                        onClick={() => setLightboxImage(null)}
-                        className='p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition cursor-pointer'
+                        onClick={() => setActiveGallery(null)}
+                        className='p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition cursor-pointer'
+                        title='Закрыть (Esc)'
                      >
                         <X className='w-5 h-5' />
                      </button>
                   </div>
-                  <div className='p-2 flex items-center justify-center bg-slate-950'>
-                     <img
-                        src={lightboxImage.url}
-                        alt={lightboxImage.title}
-                        className='max-h-[75vh] w-auto object-contain rounded-2xl'
-                     />
-                  </div>
                </div>
+
+               {/* 2. Основная область просмотра с кнопками навигации */}
+               <div
+                  onClick={(e) => e.stopPropagation()}
+                  className='flex-1 flex items-center justify-center relative w-full max-w-5xl mx-auto my-2 min-h-0'
+               >
+                  {/* Кнопка "Назад" */}
+                  {activeGallery.items.length > 1 && (
+                     <button
+                        type='button'
+                        onClick={() =>
+                           setActiveGallery((prev) =>
+                              prev
+                                 ? {
+                                      ...prev,
+                                      index:
+                                         (prev.index -
+                                            1 +
+                                            prev.items.length) %
+                                         prev.items.length,
+                                   }
+                                 : null
+                           )
+                        }
+                        className='absolute left-2 sm:left-4 z-20 p-3 rounded-full bg-slate-900/80 hover:bg-teal-600 text-white transition border border-slate-700 shadow-2xl backdrop-blur cursor-pointer'
+                        title='Предыдущий (Стрелка влево)'
+                     >
+                        <ChevronLeft className='w-6 h-6' />
+                     </button>
+                  )}
+
+                  {/* Контейнер медиа */}
+                  <div className='w-full h-full flex items-center justify-center p-2'>
+                     {(() => {
+                        const current =
+                           activeGallery.items[activeGallery.index]
+                        if (!current) return null
+                        const mediaUrl = getFullMediaUrl(current.url)
+
+                        if (current.type === 'video') {
+                           return (
+                              <video
+                                 key={mediaUrl}
+                                 src={mediaUrl}
+                                 controls
+                                 autoPlay
+                                 playsInline
+                                 className='max-h-[70vh] max-w-full rounded-2xl shadow-2xl bg-black border border-slate-800'
+                              />
+                           )
+                        }
+
+                        return (
+                           <img
+                              key={mediaUrl}
+                              src={mediaUrl}
+                              alt={activeGallery.title}
+                              className='max-h-[70vh] max-w-full object-contain rounded-2xl shadow-2xl'
+                           />
+                        )
+                     })()}
+                  </div>
+
+                  {/* Кнопка "Вперед" */}
+                  {activeGallery.items.length > 1 && (
+                     <button
+                        type='button'
+                        onClick={() =>
+                           setActiveGallery((prev) =>
+                              prev
+                                 ? {
+                                      ...prev,
+                                      index:
+                                         (prev.index + 1) %
+                                         prev.items.length,
+                                   }
+                                 : null
+                           )
+                        }
+                        className='absolute right-2 sm:right-4 z-20 p-3 rounded-full bg-slate-900/80 hover:bg-teal-600 text-white transition border border-slate-700 shadow-2xl backdrop-blur cursor-pointer'
+                        title='Следующий (Стрелка вправо)'
+                     >
+                        <ChevronRight className='w-6 h-6' />
+                     </button>
+                  )}
+               </div>
+
+               {/* 3. Нижняя лента миниатюр (если файлов больше 1) */}
+               {activeGallery.items.length > 1 && (
+                  <div
+                     onClick={(e) => e.stopPropagation()}
+                     className='w-full max-w-3xl mx-auto flex items-center justify-center gap-2 overflow-x-auto py-2 px-3 rounded-2xl bg-slate-900/80 backdrop-blur border border-slate-800 z-10'
+                  >
+                     {activeGallery.items.map((item, idx) => {
+                        const thumbUrl = getFullMediaUrl(item.url)
+                        const isActive = idx === activeGallery.index
+                        const isVid = item.type === 'video'
+
+                        return (
+                           <button
+                              key={idx}
+                              type='button'
+                              onClick={() =>
+                                 setActiveGallery((prev) =>
+                                    prev ? { ...prev, index: idx } : null
+                                 )
+                              }
+                              className={`relative w-14 h-14 rounded-xl overflow-hidden shrink-0 border-2 transition cursor-pointer ${
+                                 isActive
+                                    ? 'border-teal-400 ring-2 ring-teal-400/50 scale-105'
+                                    : 'border-slate-700 opacity-60 hover:opacity-100'
+                              }`}
+                           >
+                              {isVid ? (
+                                 <div className='w-full h-full relative bg-slate-950 flex items-center justify-center'>
+                                    <video
+                                       src={thumbUrl}
+                                       className='w-full h-full object-cover'
+                                       preload='metadata'
+                                    />
+                                    <div className='absolute inset-0 flex items-center justify-center bg-black/40'>
+                                       <Play className='w-3.5 h-3.5 fill-white text-white' />
+                                    </div>
+                                 </div>
+                              ) : (
+                                 <img
+                                    src={thumbUrl}
+                                    alt=''
+                                    className='w-full h-full object-cover'
+                                 />
+                              )}
+                           </button>
+                        )
+                     })}
+                  </div>
+               )}
             </div>
          )}
       </div>
