@@ -165,6 +165,7 @@ export default function TechCardsTab() {
 
   // Модалка создания/редактирования Шаблона тех. карты (для Админа)
   const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false);
+  const [editingTemplate, setEditingTemplate] = useState<TechCard | null>(null);
   const [templateForm, setTemplateForm] = useState<{
     productName: string;
     category: string;
@@ -187,6 +188,16 @@ export default function TechCardsTab() {
     lossPercent: 30,
     comment: '',
     items: [],
+  });
+
+  // Модалка редактирования партии
+  const [isEditBatchModalOpen, setIsEditBatchModalOpen] = useState(false);
+  const [editingBatch, setEditingBatch] = useState<ProductionBatch | null>(null);
+  const [batchEditForm, setBatchEditForm] = useState({
+    rawWeight: '',
+    rawPricePerKg: '',
+    finalWeight: '',
+    status: 'CREATED' as 'CREATED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED',
   });
 
   // Загрузка всех данных
@@ -294,6 +305,111 @@ export default function TechCardsTab() {
       fetchAllData();
     } catch (err: any) {
       toast.error(err.response?.data?.error || 'Не удалось удалить элемент');
+    }
+  };
+
+  // Открытие модалки создания/редактирования шаблона тех. карты
+  const handleOpenTemplateModal = (tpl?: TechCard) => {
+    if (!isAdmin) {
+      toast.error('Только Администратор может создавать и редактировать тех. карты');
+      return;
+    }
+    if (tpl) {
+      setEditingTemplate(tpl);
+      setTemplateForm({
+        productName: tpl.productName,
+        category: tpl.category || '',
+        baseWeight: tpl.baseWeight || 100,
+        targetOutputPercent: tpl.targetOutputPercent || 70,
+        lossPercent: tpl.lossPercent || 30,
+        comment: tpl.comment || '',
+        items: tpl.items.map((it) => ({
+          ingredientId: it.ingredientId || '',
+          name: it.name,
+          type: it.type,
+          amount: it.amount,
+          unit: it.unit,
+        })),
+      });
+    } else {
+      setEditingTemplate(null);
+      setTemplateForm({
+        productName: '',
+        category: '',
+        baseWeight: 100,
+        targetOutputPercent: 70,
+        lossPercent: 30,
+        comment: '',
+        items: [],
+      });
+    }
+    setIsTemplateModalOpen(true);
+  };
+
+  // Удаление шаблона тех. карты
+  const handleDeleteTemplate = async (id: string, name: string) => {
+    if (!isAdmin) return;
+    if (!confirm(`Удалить шаблон тех. карты "${name}"?`)) return;
+
+    try {
+      await api.delete(`/api/tech-cards/templates/${id}`);
+      toast.success(`Тех. карта "${name}" удалена`);
+      fetchAllData();
+    } catch (err: any) {
+      toast.error(err.response?.data?.error || 'Не удалось удалить тех. карту');
+    }
+  };
+
+  // Открытие модалки редактирования партии
+  const handleOpenEditBatch = (batch: ProductionBatch) => {
+    setEditingBatch(batch);
+    setBatchEditForm({
+      rawWeight: String(batch.rawWeight || ''),
+      rawPricePerKg: String(batch.rawPricePerKg || ''),
+      finalWeight: batch.finalWeight !== null && batch.finalWeight !== undefined ? String(batch.finalWeight) : '',
+      status: batch.status,
+    });
+    setIsEditBatchModalOpen(true);
+  };
+
+  // Сохранение изменений в партии
+  const handleSaveEditBatch = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingBatch) return;
+
+    const weight = parseFloat(batchEditForm.rawWeight);
+    if (!weight || weight <= 0) {
+      toast.error('Укажите корректный вес сырья (кг)');
+      return;
+    }
+
+    try {
+      await api.put(`/api/tech-cards/batches/${editingBatch.id}`, {
+        rawWeight: weight,
+        rawPricePerKg: parseFloat(batchEditForm.rawPricePerKg) || 0,
+        finalWeight: batchEditForm.finalWeight ? parseFloat(batchEditForm.finalWeight) : null,
+        status: batchEditForm.status,
+      });
+
+      toast.success(`Партия ${editingBatch.batchNumber} успешно обновлена!`);
+      setIsEditBatchModalOpen(false);
+      setEditingBatch(null);
+      fetchAllData();
+    } catch (err: any) {
+      toast.error(err.response?.data?.error || 'Ошибка сохранения партии');
+    }
+  };
+
+  // Удаление партии
+  const handleDeleteBatch = async (id: string, batchNumber: string, productName: string) => {
+    if (!confirm(`Удалить партию ${batchNumber} (${productName})?`)) return;
+
+    try {
+      await api.delete(`/api/tech-cards/batches/${id}`);
+      toast.success(`Партия ${batchNumber} удалена`);
+      fetchAllData();
+    } catch (err: any) {
+      toast.error(err.response?.data?.error || 'Ошибка удаления партии');
     }
   };
 
@@ -683,18 +799,7 @@ export default function TechCardsTab() {
             {isAdmin && (
               <button
                 type='button'
-                onClick={() => {
-                  setTemplateForm({
-                    productName: '',
-                    category: '',
-                    baseWeight: 100,
-                    targetOutputPercent: 70,
-                    lossPercent: 30,
-                    comment: '',
-                    items: [],
-                  });
-                  setIsTemplateModalOpen(true);
-                }}
+                onClick={() => handleOpenTemplateModal()}
                 className='inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition shadow-sm cursor-pointer'
               >
                 <Plus className='w-4 h-4' />
@@ -728,9 +833,31 @@ export default function TechCardsTab() {
                           {tpl.productName}
                         </h3>
                       </div>
-                      <div className='text-right'>
-                        <div className='text-[10px] text-slate-400 font-medium'>Выход:</div>
-                        <div className='font-black text-emerald-600 text-sm'>{tpl.targetOutputPercent || 70}%</div>
+                      <div className='flex items-center gap-2'>
+                        <div className='text-right'>
+                          <div className='text-[10px] text-slate-400 font-medium'>Выход:</div>
+                          <div className='font-black text-emerald-600 text-sm'>{tpl.targetOutputPercent || 70}%</div>
+                        </div>
+                        {isAdmin && (
+                          <div className='flex items-center gap-1 pl-2 border-l border-slate-100'>
+                            <button
+                              type='button'
+                              onClick={() => handleOpenTemplateModal(tpl)}
+                              className='p-1.5 rounded-lg text-slate-400 hover:text-teal-600 hover:bg-teal-50 transition cursor-pointer'
+                              title='Редактировать тех. карту'
+                            >
+                              <Pencil className='w-3.5 h-3.5' />
+                            </button>
+                            <button
+                              type='button'
+                              onClick={() => handleDeleteTemplate(tpl.id, tpl.productName)}
+                              className='p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer'
+                              title='Удалить тех. карту'
+                            >
+                              <Trash2 className='w-3.5 h-3.5' />
+                            </button>
+                          </div>
+                        )}
                       </div>
                     </div>
 
@@ -868,8 +995,8 @@ export default function TechCardsTab() {
                         </div>
                       </div>
 
-                      {/* Весовые показатели */}
-                      <div className='flex items-center gap-4 text-right'>
+                      {/* Весовые показатели и действия */}
+                      <div className='flex items-center gap-3 sm:gap-4 text-right flex-wrap justify-end'>
                         <div className='bg-slate-50 p-2.5 rounded-xl border border-slate-100'>
                           <div className='text-[10px] text-slate-400 font-bold uppercase'>Сырье (дефрост)</div>
                           <div className='text-base font-black text-slate-900'>{batch.rawWeight} кг</div>
@@ -899,6 +1026,26 @@ export default function TechCardsTab() {
                             <span>Ввести готовый вес →</span>
                           </button>
                         )}
+
+                        {/* Кнопки редактирования и удаления партии */}
+                        <div className='flex items-center gap-1 pl-2 border-l border-slate-200'>
+                          <button
+                            type='button'
+                            onClick={() => handleOpenEditBatch(batch)}
+                            className='p-2 rounded-xl text-slate-400 hover:text-teal-600 hover:bg-teal-50 transition cursor-pointer'
+                            title='Редактировать партию'
+                          >
+                            <Pencil className='w-4 h-4' />
+                          </button>
+                          <button
+                            type='button'
+                            onClick={() => handleDeleteBatch(batch.id, batch.batchNumber, batch.productName)}
+                            className='p-2 rounded-xl text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer'
+                            title='Удалить партию'
+                          >
+                            <Trash2 className='w-4 h-4' />
+                          </button>
+                        </div>
                       </div>
                     </div>
 
@@ -1313,15 +1460,20 @@ export default function TechCardsTab() {
           <div className='bg-white rounded-3xl max-w-2xl w-full p-6 sm:p-8 shadow-2xl border border-slate-200 relative my-8'>
             <button
               type='button'
-              onClick={() => setIsTemplateModalOpen(false)}
+              onClick={() => {
+                setIsTemplateModalOpen(false);
+                setEditingTemplate(null);
+              }}
               className='absolute top-5 right-5 p-2 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition cursor-pointer'
             >
               <X className='w-5 h-5' />
             </button>
 
-            <h3 className='text-xl font-black text-slate-900 mb-1'>Создание шаблона тех. карты</h3>
+            <h3 className='text-xl font-black text-slate-900 mb-1'>
+              {editingTemplate ? `Редактирование тех. карты: ${editingTemplate.productName}` : 'Создание шаблона тех. карты'}
+            </h3>
             <p className='text-xs text-slate-500 mb-6'>
-              Выберите позицию из прайса и добавьте нормы расхода ингредиентов и упаковки на базовый вес
+              {editingTemplate ? 'Измените пропорции ингредиентов и плановые параметры выхода' : 'Выберите позицию из прайса и добавьте нормы расхода ингредиентов и упаковки на базовый вес'}
             </p>
 
             <div className='space-y-5'>
@@ -1492,7 +1644,10 @@ export default function TechCardsTab() {
               <div className='flex items-center justify-end gap-2 pt-4 border-t border-slate-100'>
                 <button
                   type='button'
-                  onClick={() => setIsTemplateModalOpen(false)}
+                  onClick={() => {
+                    setIsTemplateModalOpen(false);
+                    setEditingTemplate(null);
+                  }}
                   className='px-4 py-2 rounded-xl text-slate-600 hover:bg-slate-100 text-xs font-bold transition cursor-pointer'
                 >
                   Отмена
@@ -1505,9 +1660,15 @@ export default function TechCardsTab() {
                       return;
                     }
                     try {
-                      await api.post('/api/tech-cards/templates', templateForm);
-                      toast.success(`Шаблон "${templateForm.productName}" сохранен!`);
+                      if (editingTemplate) {
+                        await api.put(`/api/tech-cards/templates/${editingTemplate.id}`, templateForm);
+                        toast.success(`Шаблон "${templateForm.productName}" обновлен!`);
+                      } else {
+                        await api.post('/api/tech-cards/templates', templateForm);
+                        toast.success(`Шаблон "${templateForm.productName}" сохранен!`);
+                      }
                       setIsTemplateModalOpen(false);
+                      setEditingTemplate(null);
                       fetchAllData();
                     } catch (err: any) {
                       toast.error(err.response?.data?.error || 'Ошибка сохранения тех. карты');
@@ -1515,10 +1676,131 @@ export default function TechCardsTab() {
                   }}
                   className='px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition shadow-sm cursor-pointer'
                 >
-                  Сохранить тех. карту
+                  {editingTemplate ? 'Сохранить изменения' : 'Сохранить тех. карту'}
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* =====================================================================
+          МОДАЛКА: РЕДАКТИРОВАНИЕ ПАРТИИ В ЦЕХУ
+         ===================================================================== */}
+      {isEditBatchModalOpen && editingBatch && (
+        <div className='fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4'>
+          <div className='bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 relative'>
+            <button
+              type='button'
+              onClick={() => {
+                setIsEditBatchModalOpen(false);
+                setEditingBatch(null);
+              }}
+              className='absolute top-5 right-5 p-2 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition cursor-pointer'
+            >
+              <X className='w-5 h-5' />
+            </button>
+
+            <div className='flex items-center gap-2 mb-1'>
+              <div className='w-8 h-8 rounded-xl bg-teal-600 text-white flex items-center justify-center'>
+                <Pencil className='w-4 h-4' />
+              </div>
+              <h3 className='text-lg font-black text-slate-900'>Редактирование партии</h3>
+            </div>
+            <p className='text-xs text-slate-500 mb-5'>
+              Партия: <strong className='text-slate-800'>{editingBatch.batchNumber}</strong> ({editingBatch.productName})
+            </p>
+
+            <form onSubmit={handleSaveEditBatch} className='space-y-4'>
+              <div>
+                <label className='block text-xs font-bold text-slate-700 mb-1'>
+                  Статус партии
+                </label>
+                <select
+                  value={batchEditForm.status}
+                  onChange={(e) => setBatchEditForm({ ...batchEditForm, status: e.target.value as any })}
+                  className='w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500'
+                >
+                  <option value='CREATED'>Создана (Внесение специй)</option>
+                  <option value='IN_PROGRESS'>В работе (На копчении)</option>
+                  <option value='COMPLETED'>Завершена</option>
+                  <option value='CANCELLED'>Отменена</option>
+                </select>
+              </div>
+
+              <div>
+                <label className='block text-xs font-bold text-slate-700 mb-1'>
+                  Фактический вес сырья (дефрост, кг) *
+                </label>
+                <input
+                  type='number'
+                  step='0.1'
+                  min='0.1'
+                  required
+                  placeholder='Например, 100'
+                  value={batchEditForm.rawWeight}
+                  onChange={(e) => setBatchEditForm({ ...batchEditForm, rawWeight: e.target.value })}
+                  className='w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-base font-black text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500'
+                />
+                <span className='text-[10px] text-slate-400 mt-1 block'>
+                  При изменении веса нормы специй в чек-листе автоматически пересчитаются
+                </span>
+              </div>
+
+              {isAdmin && (
+                <div>
+                  <label className='block text-xs font-bold text-slate-700 mb-1'>
+                    Цена закупки сырья (₽/кг)
+                  </label>
+                  <input
+                    type='number'
+                    step='0.01'
+                    min='0'
+                    placeholder='0.00'
+                    value={batchEditForm.rawPricePerKg}
+                    onChange={(e) => setBatchEditForm({ ...batchEditForm, rawPricePerKg: e.target.value })}
+                    className='w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 font-semibold'
+                  />
+                </div>
+              )}
+
+              <div>
+                <label className='block text-xs font-bold text-slate-700 mb-1'>
+                  Вес готовой продукции (кг)
+                </label>
+                <input
+                  type='number'
+                  step='0.1'
+                  min='0'
+                  placeholder='Если рыба уже готова, укажите готовый вес'
+                  value={batchEditForm.finalWeight}
+                  onChange={(e) => setBatchEditForm({ ...batchEditForm, finalWeight: e.target.value })}
+                  className='w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-black text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500'
+                />
+                <span className='text-[10px] text-slate-400 mt-1 block'>
+                  При заполнении система пересчитает выход (%) и себестоимость
+                </span>
+              </div>
+
+              <div className='flex items-center justify-end gap-2 pt-3 border-t border-slate-100'>
+                <button
+                  type='button'
+                  onClick={() => {
+                    setIsEditBatchModalOpen(false);
+                    setEditingBatch(null);
+                  }}
+                  className='px-4 py-2 rounded-xl text-slate-600 hover:bg-slate-100 text-xs font-bold transition cursor-pointer'
+                >
+                  Отмена
+                </button>
+                <button
+                  type='submit'
+                  className='px-5 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-black transition shadow-md shadow-teal-600/20 cursor-pointer'
+                >
+                  Сохранить изменения
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
