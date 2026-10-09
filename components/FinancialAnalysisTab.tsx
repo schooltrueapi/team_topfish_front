@@ -4,8 +4,10 @@ import React, { useState, useEffect, useMemo } from 'react';
 import api from '@/lib/api';
 import toast from 'react-hot-toast';
 import { useAuth } from '@/context/AuthContext';
+import PositionHistoryModal from './PositionHistoryModal';
 import {
   Wallet,
+  History,
   TrendingUp,
   Scale,
   Package,
@@ -112,6 +114,7 @@ export default function FinancialAnalysisTab({ currentWeek }: FinancialAnalysisT
   const [stockFilter, setStockFilter] = useState<'ALL' | 'IN_STOCK' | 'OUT_OF_STOCK' | 'PLANNED' | 'NO_PRICE'>('IN_STOCK');
   const [sortBy, setSortBy] = useState<'value_desc' | 'value_asc' | 'stock_desc' | 'stock_asc' | 'price_desc' | 'name_asc'>('value_desc');
   const [page, setPage] = useState<number>(1);
+  const [historyModalProductName, setHistoryModalProductName] = useState<string | null>(null);
   const pageSize = 50;
 
   // Форматирование денег
@@ -802,6 +805,14 @@ export default function FinancialAnalysisTab({ currentWeek }: FinancialAnalysisT
                               <span className="font-bold text-slate-900">
                                 {item.productName}
                               </span>
+                              <button
+                                type="button"
+                                onClick={() => setHistoryModalProductName(item.productName)}
+                                title="История остатков и категорий позиции"
+                                className="p-1 rounded-lg text-slate-400 hover:text-cyan-600 hover:bg-cyan-50 border border-transparent hover:border-cyan-200 transition cursor-pointer shrink-0"
+                              >
+                                <History className="w-3.5 h-3.5" />
+                              </button>
                               {item.isHit && (
                                 <span className="px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800 text-[10px] font-black flex items-center gap-0.5 shrink-0">
                                   <Flame className="w-3 h-3 text-amber-600" />
@@ -887,6 +898,13 @@ export default function FinancialAnalysisTab({ currentWeek }: FinancialAnalysisT
           </div>
         </>
       ) : null}
+
+      {historyModalProductName && (
+        <PositionHistoryModal
+          productName={historyModalProductName}
+          onClose={() => setHistoryModalProductName(null)}
+        />
+      )}
     </div>
   );
 }

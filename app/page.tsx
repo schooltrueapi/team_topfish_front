@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import React, { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
@@ -22,6 +22,7 @@ import TrialNoveltiesTab from '@/components/TrialNoveltiesTab'
 import ClientsCallingTab from '@/components/ClientsCallingTab'
 import FinancialAnalysisTab from '@/components/FinancialAnalysisTab'
 import TechCardsTab from '@/components/TechCardsTab'
+import StockAnalyticsTab from '@/components/StockAnalyticsTab'
 import {
    RotateCcw,
    FlaskConical,
@@ -30,6 +31,7 @@ import {
    PhoneCall,
    Wallet,
    ChefHat,
+   BarChart3,
 } from 'lucide-react'
 
 export default function DashboardPage() {
@@ -43,9 +45,9 @@ export default function DashboardPage() {
    const [isReviewDismissed, setIsReviewDismissed] = useState(false)
    const [currentFilter, setCurrentFilter] = useState('all')
 
-   // Главные вкладки страницы: Основной план vs Вторые новинки vs База обзвона vs Анализ финансов vs Тех. карты
+   // Главные вкладки страницы: Основной план vs Вторые новинки vs База обзвона vs Анализ финансов vs Тех. карты vs Аналитика склада
    const [activeTab, setActiveTab] = useState<
-      'main_plan' | 'trial_novelties' | 'clients' | 'finance' | 'tech_cards'
+      'main_plan' | 'trial_novelties' | 'clients' | 'finance' | 'tech_cards' | 'stock_analytics'
    >('main_plan')
    const [clientsCount, setClientsCount] = useState<number>(0)
    const [trialStats, setTrialStats] = useState({
@@ -736,6 +738,29 @@ export default function DashboardPage() {
                         Цех
                      </span>
                   </button>
+
+                   {/* Вкладка «Аналитика склада» */}
+                   <button
+                      type='button'
+                      onClick={() => setActiveTab('stock_analytics')}
+                      className={`px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all flex items-center gap-2 cursor-pointer ${
+                         activeTab === 'stock_analytics'
+                            ? 'bg-gradient-to-r from-cyan-600 via-sky-800 to-indigo-950 text-white shadow-md shadow-slate-900/25 ring-1 ring-cyan-500/50'
+                            : 'bg-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                      }`}
+                   >
+                      <BarChart3 className='w-4 h-4 text-cyan-300' />
+                      <span>Аналитика склада</span>
+                      <span
+                         className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                            activeTab === 'stock_analytics'
+                               ? 'bg-white/20 text-white'
+                               : 'bg-cyan-50 text-cyan-700'
+                         }`}
+                      >
+                         История
+                      </span>
+                   </button>
                </div>
 
                {/* Быстрая подсказка / статус */}
@@ -748,7 +773,9 @@ export default function DashboardPage() {
                          ? 'Финансовая оценка складских остатков • Оптовый прайс'
                          : activeTab === 'tech_cards'
                            ? 'Технологические карты • Справочник ингредиентов, нормы и контроль цеха'
-                           : 'База клиентов и контрагентов • Обзвон и контакты'}
+                           : activeTab === 'stock_analytics'
+                             ? 'История остатков по загрузкам • Все загруженные файлы'
+                             : 'База клиентов и контрагентов • Обзвон и контакты'}
                </div>
             </div>
 
@@ -763,6 +790,8 @@ export default function DashboardPage() {
                   onStatsChange={setTrialStats}
                   onPlanChanged={() => fetchCurrentWeek(true)}
                />
+            ) : activeTab === 'stock_analytics' ? (
+               <StockAnalyticsTab />
             ) : activeTab === 'tech_cards' ? (
                <TechCardsTab />
             ) : (

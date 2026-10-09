@@ -839,7 +839,7 @@ export default function UploadDiffModal({
                       <div className="flex items-center gap-2">
                         <span className="text-base">🔥</span>
                         <span className="font-bold text-orange-950 text-xs">
-                          Хиты: производились на прошлой неделе (от 5 кг) и были полностью раскуплены
+                          Хиты: производились на прошлой неделе (от 10 кг) и были полностью раскуплены
                         </span>
                         <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-orange-100 text-orange-800">
                           {filteredHits.length} поз.

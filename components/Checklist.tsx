@@ -33,6 +33,8 @@ import {
 import { useAuth } from '@/context/AuthContext'
 import BulkPlanModal, { BulkActionType } from './BulkPlanModal'
 import TrashModal from './TrashModal'
+import PositionHistoryModal from './PositionHistoryModal'
+import { History } from 'lucide-react'
 
 type SortField = 'none' | 'stock' | 'price'
 type SortDirection = 'asc' | 'desc'
@@ -227,6 +229,7 @@ export default function Checklist({
    const [isSyncingPrice, setIsSyncingPrice] = useState(false)
    const [isSyncingDostavka, setIsSyncingDostavka] = useState(false)
    const [isSyncingAll, setIsSyncingAll] = useState(false)
+   const [historyModalProductName, setHistoryModalProductName] = useState<string | null>(null)
    const [previewImageModal, setPreviewImageModal] = useState<{
       url: string
       title: string
@@ -760,7 +763,7 @@ export default function Checklist({
          actionType: 'HITS',
          title: 'Добавить все хиты в план?',
          description:
-            'Товары высокого спроса (партии от 5 кг), которые были полностью раскуплены (остаток 0..2 кг)',
+            'Товары высокого спроса (партии от 10 кг), которые были полностью раскуплены (остаток 0..2 кг)',
          items: hitItems,
       })
    }
@@ -1163,7 +1166,7 @@ export default function Checklist({
                               ? 'bg-gradient-to-r from-orange-600 to-amber-600 text-white shadow-sm ring-1 ring-orange-500'
                               : 'bg-orange-50 border border-orange-200 text-orange-800 hover:bg-orange-100'
                         }`}
-                        title='Товары, которые производились на прошлой неделе в объеме от 5 кг и были полностью раскуплены (остаток 0..2 кг)'
+                        title='Товары, которые производились на прошлой неделе в объеме от 10 кг и были полностью раскуплены (остаток 0..2 кг)'
                      >
                         <span>🔥</span>
                         <span>Хиты ({hitsCount})</span>
@@ -1688,6 +1691,7 @@ export default function Checklist({
                                              }
                                              alt={item.productName}
                                              className='w-full h-full object-cover group-hover/thumb:scale-110 transition duration-200'
+
                                           />
                                           <div className='absolute inset-0 bg-black/30 opacity-0 group-hover/thumb:opacity-100 flex items-center justify-center transition'>
                                              <Eye className='w-4 h-4 text-white' />
@@ -1710,6 +1714,19 @@ export default function Checklist({
                                           >
                                              {item.productName}
                                           </span>
+
+                                           {/* Значок истории остатков и смены категорий */}
+                                           <button
+                                              type='button'
+                                              onClick={(e) => {
+                                                 e.stopPropagation()
+                                                 setHistoryModalProductName(item.productName)
+                                              }}
+                                              title='История остатков и присвоения категорий'
+                                              className='p-1 rounded-lg text-slate-400 hover:text-cyan-600 hover:bg-cyan-50 border border-transparent hover:border-cyan-200 transition cursor-pointer shrink-0'
+                                           >
+                                              <History className='w-3.5 h-3.5' />
+                                           </button>
 
                                           {/* Специальный бейдж для новинки-идеи */}
                                           {item.isTrialNovelty && (
@@ -2872,6 +2889,14 @@ export default function Checklist({
                   </div>
                </div>
             </div>
+         )}
+
+         {/* Модальное окно истории остатков и смены категорий */}
+         {historyModalProductName && (
+            <PositionHistoryModal
+               productName={historyModalProductName}
+               onClose={() => setHistoryModalProductName(null)}
+            />
          )}
       </div>
    )
