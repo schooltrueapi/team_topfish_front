@@ -2880,12 +2880,21 @@ export default function Checklist({
                         <X className='w-4 h-4' />
                      </button>
                   </div>
-                  <div className='rounded-2xl overflow-hidden bg-slate-100 aspect-[4/3] relative'>
-                     <img
-                        src={previewImageModal.url}
-                        alt={previewImageModal.title}
-                        className='w-full h-full object-cover'
-                     />
+                  <div className='rounded-2xl overflow-hidden bg-slate-950 aspect-[4/3] relative flex items-center justify-center'>
+                     {/\.(mp4|webm|mov)$/i.test(previewImageModal.url) ? (
+                        <video
+                           src={previewImageModal.url}
+                           controls
+                           autoPlay
+                           className='w-full h-full object-contain'
+                        />
+                     ) : (
+                        <img
+                           src={previewImageModal.url}
+                           alt={previewImageModal.title}
+                           className='w-full h-full object-cover'
+                        />
+                     )}
                   </div>
                </div>
             </div>

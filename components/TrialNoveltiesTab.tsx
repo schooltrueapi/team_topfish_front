@@ -30,6 +30,9 @@ import {
    Film,
    ChevronLeft,
    ChevronRight,
+   Loader2,
+   Zap,
+   Star,
 } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 
@@ -38,6 +41,21 @@ export interface MediaItem {
    type: 'image' | 'video'
    name?: string
    size?: number
+}
+
+export interface FormMediaItem {
+   id: string
+   type: 'image' | 'video'
+   url?: string
+   preview?: string
+   name: string
+   size?: number
+   originalSize?: number
+   status: 'uploading' | 'compressing' | 'ready' | 'error'
+   progress: number
+   loadedBytes?: number
+   totalBytes?: number
+   errorMessage?: string
 }
 
 export interface TrialNovelty {
@@ -107,15 +125,32 @@ export default function TrialNoveltiesTab({
    // Форма добавления/редактирования
    const [formName, setFormName] = useState('')
    const [formCategory, setFormCategory] = useState('')
-   const [existingMedia, setExistingMedia] = useState<MediaItem[]>([])
-   const [newMediaFiles, setNewMediaFiles] = useState<{
-      id: string
-      file: File
-      preview: string
-      type: 'image' | 'video'
-   }[]>([])
+
+   // Категории из основного плана недели и общего справочника позиций плана
+   const availableCategories = useMemo(() => {
+      const set = new Set<string>()
+      if (currentWeek?.items && Array.isArray(currentWeek.items)) {
+         currentWeek.items.forEach((it: any) => {
+            if (!it.isDeleted && !it.isTrialNovelty && it.category && it.category.trim()) {
+               set.add(it.category.trim())
+            }
+         })
+      }
+      categories.forEach((c) => {
+         if (c && c.trim()) set.add(c.trim())
+      })
+      if (formCategory && formCategory.trim()) {
+         set.add(formCategory.trim())
+      }
+      return Array.from(set).sort((a, b) => a.localeCompare(b, 'ru'))
+   }, [currentWeek, categories, formCategory])
+
+   const [formMedia, setFormMedia] = useState<FormMediaItem[]>([])
    const [formAddToPlan, setFormAddToPlan] = useState(false)
    const [isSubmitting, setIsSubmitting] = useState(false)
+   const [uploadProgress, setUploadProgress] = useState<number>(0)
+   const [uploadStats, setUploadStats] = useState<{ loaded: number; total: number } | null>(null)
+   const [uploadPhase, setUploadPhase] = useState<'idle' | 'uploading' | 'processing'>('idle')
    const fileInputRef = useRef<HTMLInputElement | null>(null)
 
    // Форма завершения пробы
@@ -206,9 +241,10 @@ export default function TrialNoveltiesTab({
       setEditingItem(null)
       setFormName('')
       setFormCategory('')
-      setExistingMedia([])
-      newMediaFiles.forEach((m) => URL.revokeObjectURL(m.preview))
-      setNewMediaFiles([])
+      formMedia.forEach((m) => {
+         if (m.preview) URL.revokeObjectURL(m.preview)
+      })
+      setFormMedia([])
       setFormAddToPlan(false)
       setIsCreateModalOpen(true)
    }
@@ -218,30 +254,33 @@ export default function TrialNoveltiesTab({
       setEditingItem(item)
       setFormName(item.name)
       setFormCategory(item.category || '')
-      const media: MediaItem[] =
+      formMedia.forEach((m) => {
+         if (m.preview) URL.revokeObjectURL(m.preview)
+      })
+      const existing: FormMediaItem[] = (
          Array.isArray(item.mediaFiles) && item.mediaFiles.length > 0
-            ? [...item.mediaFiles]
+            ? item.mediaFiles
             : item.imageUrl
-              ? [{ url: item.imageUrl, type: 'image', name: 'Главное фото' }]
+              ? [{ url: item.imageUrl, type: 'image' as const, name: 'Главное фото' }]
               : []
-      setExistingMedia(media)
-      newMediaFiles.forEach((m) => URL.revokeObjectURL(m.preview))
-      setNewMediaFiles([])
+      ).map((m, idx) => ({
+         id: `existing-${idx}-${Date.now()}`,
+         type: m.type || 'image',
+         url: m.url,
+         name: m.name || (m.type === 'video' ? 'Видео' : 'Фото'),
+         size: m.size,
+         status: 'ready',
+         progress: 100,
+      }))
+      setFormMedia(existing)
       setFormAddToPlan(item.status === 'IN_TRIAL')
       setIsCreateModalOpen(true)
    }
 
-   // Обработка выбора файлов (неограниченно фото и видео)
+   // Обработка выбора файлов: СРАЗУ запускается загрузка на сервер с отображением прогресса и сжатия!
    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
       const files = e.target.files
       if (!files || files.length === 0) return
-
-      const added: {
-         id: string
-         file: File
-         preview: string
-         type: 'image' | 'video'
-      }[] = []
 
       Array.from(files).forEach((file) => {
          const isVideo = file.type.startsWith('video/')
@@ -252,36 +291,170 @@ export default function TrialNoveltiesTab({
             )
             return
          }
+
+         const tempId = `media-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`
          const preview = URL.createObjectURL(file)
-         added.push({
-            id: Math.random().toString(36).substring(2, 9),
-            file,
-            preview,
+
+         // Сразу добавляем карточку в список со статусом "загрузка"
+         const newItem: FormMediaItem = {
+            id: tempId,
             type: isVideo ? 'video' : 'image',
+            preview,
+            name: file.name,
+            size: file.size,
+            originalSize: file.size,
+            status: 'uploading',
+            progress: 0,
+            loadedBytes: 0,
+            totalBytes: file.size,
+         }
+
+         setFormMedia((prev) => [...prev, newItem])
+
+         // Запускаем немедленную загрузку на сервер с отслеживанием прогресса в реальном времени
+         const uploadFormData = new FormData()
+         uploadFormData.append('media', file)
+
+         api.post('/api/trial-novelties/upload-media', uploadFormData, {
+            headers: { 'Content-Type': 'multipart/form-data' },
+            onUploadProgress: (progressEvent: any) => {
+               if (progressEvent.total) {
+                  const percent = Math.min(
+                     100,
+                     Math.round((progressEvent.loaded * 100) / progressEvent.total)
+                  )
+                  setFormMedia((prev) =>
+                     prev.map((item) => {
+                        if (item.id !== tempId) return item
+                        const newStatus =
+                           percent >= 100 && isVideo
+                              ? 'compressing'
+                              : 'uploading'
+                        return {
+                           ...item,
+                           progress: percent,
+                           loadedBytes: progressEvent.loaded,
+                           totalBytes: progressEvent.total,
+                           status: newStatus,
+                        }
+                     })
+                  )
+               }
+            },
          })
+            .then((res) => {
+               const up = res.data?.files?.[0]
+               if (up) {
+                  setFormMedia((prev) =>
+                     prev.map((item) => {
+                        if (item.id !== tempId) return item
+                        return {
+                           ...item,
+                           url: up.url,
+                           size: up.size,
+                           originalSize: up.originalSize || file.size,
+                           status: 'ready',
+                           progress: 100,
+                        }
+                     })
+                  )
+
+                  if (up.isCompressed) {
+                     const origMb = (up.originalSize / (1024 * 1024)).toFixed(0)
+                     const newMb = (up.size / (1024 * 1024)).toFixed(1)
+                     const pct = Math.round(
+                        (1 - up.size / up.originalSize) * 100
+                     )
+                     toast.success(
+                        `Видео «${file.name}» сжато: ${origMb} МБ → ${newMb} МБ (-${pct}%)! ⚡`,
+                        { duration: 5000 }
+                     )
+                  } else {
+                     toast.success(`Файл «${file.name}» загружен! ✅`)
+                  }
+               }
+            })
+            .catch((err: any) => {
+               const errorMsg =
+                  err.response?.data?.error || 'Ошибка загрузки файла'
+               setFormMedia((prev) =>
+                  prev.map((item) => {
+                     if (item.id !== tempId) return item
+                     return {
+                        ...item,
+                        status: 'error',
+                        errorMessage: errorMsg,
+                     }
+                  })
+               )
+               toast.error(`Не удалось загрузить «${file.name}»: ${errorMsg}`)
+            })
       })
 
-      if (added.length > 0) {
-         setNewMediaFiles((prev) => [...prev, ...added])
-      }
       if (fileInputRef.current) {
          fileInputRef.current.value = ''
       }
    }
 
-   const handleRemoveExistingMedia = (index: number) => {
-      setExistingMedia((prev) => prev.filter((_, i) => i !== index))
-   }
-
-   const handleRemoveNewMedia = (id: string) => {
-      setNewMediaFiles((prev) => {
+   const handleRemoveMedia = (id: string) => {
+      setFormMedia((prev) => {
          const found = prev.find((m) => m.id === id)
-         if (found) URL.revokeObjectURL(found.preview)
+         if (found?.preview) URL.revokeObjectURL(found.preview)
          return prev.filter((m) => m.id !== id)
       })
    }
 
-   // Отправка формы (создание или редактирование)
+   // Установить выбранное медиа обложкой (перемещает на 1-е место, индекс 0)
+   const handleSetAsCover = (index: number) => {
+      if (index === 0) return
+      setFormMedia((prev) => {
+         if (index < 0 || index >= prev.length) return prev
+         const updated = [...prev]
+         const [target] = updated.splice(index, 1)
+         updated.unshift(target)
+         return updated
+      })
+      toast.success('Медиа выбрано обложкой новинки ⭐')
+   }
+
+   // Сдвинуть влево или вправо (поменять местами)
+   const handleMoveMedia = (index: number, direction: 'left' | 'right') => {
+      setFormMedia((prev) => {
+         const targetIndex = direction === 'left' ? index - 1 : index + 1
+         if (targetIndex < 0 || targetIndex >= prev.length) return prev
+         const updated = [...prev]
+         const temp = updated[index]
+         updated[index] = updated[targetIndex]
+         updated[targetIndex] = temp
+         if (targetIndex === 0) {
+            toast.success('Медиа перемещено на обложку ⭐')
+         }
+         return updated
+      })
+   }
+
+   // Drag & Drop перетаскивание
+   const handleReorderMedia = (fromIndex: number, toIndex: number) => {
+      if (fromIndex === toIndex) return
+      setFormMedia((prev) => {
+         if (
+            fromIndex < 0 ||
+            fromIndex >= prev.length ||
+            toIndex < 0 ||
+            toIndex >= prev.length
+         )
+            return prev
+         const updated = [...prev]
+         const [moved] = updated.splice(fromIndex, 1)
+         updated.splice(toIndex, 0, moved)
+         if (toIndex === 0) {
+            toast.success('Медиа перемещено на обложку ⭐')
+         }
+         return updated
+      })
+   }
+
+   // Отправка формы (сохранение готовой новинки)
    const handleSubmitForm = async (e: React.FormEvent) => {
       e.preventDefault()
       if (!formName.trim()) {
@@ -289,33 +462,54 @@ export default function TrialNoveltiesTab({
          return
       }
 
+      // Проверяем, есть ли файлы, которые ещё передаются или сжимаются
+      const pendingUpload = formMedia.find(
+         (m) => m.status === 'uploading' || m.status === 'compressing'
+      )
+      if (pendingUpload) {
+         toast.error(
+            pendingUpload.status === 'compressing'
+               ? 'Пожалуйста, подождите завершения сжатия видео на сервере'
+               : 'Пожалуйста, дождитесь окончания загрузки файла'
+         )
+         return
+      }
+
+      const hasError = formMedia.some((m) => m.status === 'error')
+      if (hasError) {
+         toast.error('Удалите файлы с ошибкой загрузки перед сохранением')
+         return
+      }
+
       try {
          setIsSubmitting(true)
-         const formData = new FormData()
-         formData.append('name', formName.trim())
-         formData.append('category', formCategory.trim())
 
-         // Передаем оставшиеся существующие медиафайлы
-         formData.append('existingMedia', JSON.stringify(existingMedia))
+         // Все файлы уже загружены на сервер при прикреплении!
+         // Передаем их в точном порядке пользователя
+         const readyMedia = formMedia
+            .filter((m) => m.url)
+            .map((m) => ({
+               url: m.url!,
+               type: m.type,
+               name: m.name,
+               size: m.size,
+            }))
 
-         // Передаем все новые файлы
-         newMediaFiles.forEach((m) => {
-            formData.append('media', m.file)
-         })
+         const payload = {
+            name: formName.trim(),
+            category: formCategory.trim(),
+            mediaFiles: readyMedia,
+            existingMedia: readyMedia,
+            ...(formAddToPlan && currentWeek?.id
+               ? { weekId: currentWeek.id, addToPlan: true }
+               : {}),
+         }
 
          if (editingItem) {
-            await api.put(`/api/trial-novelties/${editingItem.id}`, formData, {
-               headers: { 'Content-Type': 'multipart/form-data' },
-            })
+            await api.put(`/api/trial-novelties/${editingItem.id}`, payload)
             toast.success('Новинка успешно обновлена!')
          } else {
-            if (formAddToPlan && currentWeek?.id) {
-               formData.append('weekId', currentWeek.id)
-               formData.append('addToPlan', 'true')
-            }
-            await api.post('/api/trial-novelties', formData, {
-               headers: { 'Content-Type': 'multipart/form-data' },
-            })
+            await api.post('/api/trial-novelties', payload)
             toast.success(
                formAddToPlan
                   ? 'Новинка создана и включена в план недели!'
@@ -658,7 +852,7 @@ export default function TrialNoveltiesTab({
                      className='px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-teal-500 cursor-pointer'
                   >
                      <option value='ALL'>Все категории</option>
-                     {categories.map((c) => (
+                     {availableCategories.map((c) => (
                         <option key={c} value={c}>
                            {c}
                         </option>
@@ -980,7 +1174,7 @@ export default function TrialNoveltiesTab({
          {/* ═══ МОДАЛКА: СОЗДАНИЕ / РЕДАКТИРОВАНИЕ НОВИНКИ ═══ */}
          {isCreateModalOpen && (
             <div className='fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto'>
-               <div className='bg-white rounded-3xl shadow-2xl border border-slate-200 max-w-lg w-full p-6 space-y-5 animate-in fade-in zoom-in-95 my-8'>
+               <div className='bg-white rounded-3xl shadow-2xl border border-slate-200 max-w-2xl w-full p-6 sm:p-7 space-y-5 animate-in fade-in zoom-in-95 my-8'>
                   <div className='flex items-center justify-between pb-3 border-b border-slate-100'>
                      <div className='flex items-center gap-2.5'>
                         <div className='w-9 h-9 rounded-xl bg-teal-100 text-teal-700 flex items-center justify-center font-bold'>
@@ -1025,40 +1219,71 @@ export default function TrialNoveltiesTab({
 
                      {/* Поле: Категория */}
                      <div>
-                        <label className='block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1'>
-                           Категория продукции
-                        </label>
-                        <input
-                           type='text'
-                           list='category-suggestions'
+                        <div className='flex items-center justify-between mb-1'>
+                           <label className='block text-xs font-bold text-slate-700 uppercase tracking-wider'>
+                              Категория продукции
+                           </label>
+                           <span className='text-[10px] text-teal-600 font-bold'>
+                              из основного плана
+                           </span>
+                        </div>
+                        <select
                            value={formCategory}
                            onChange={(e) => setFormCategory(e.target.value)}
-                           placeholder='Например: Копчение, Посолка, Кулинария, Пресервы...'
-                           className='w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:bg-white transition'
-                        />
-                        <datalist id='category-suggestions'>
-                           <option value='Копчение' />
-                           <option value='Слабосоленая' />
-                           <option value='Вяленая рыба' />
-                           <option value='Пресервы' />
-                           <option value='Кулинария' />
-                           <option value='Полуфабрикаты' />
-                           <option value='Икра' />
-                        </datalist>
+                           className='w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:bg-white transition cursor-pointer'
+                        >
+                           <option value=''>-- Выберите категорию из основного плана --</option>
+                           {availableCategories.map((cat) => (
+                              <option key={cat} value={cat}>
+                                 {cat}
+                              </option>
+                           ))}
+                        </select>
+                        {availableCategories.length > 0 && (
+                           <div className='flex items-center gap-1.5 mt-2 flex-wrap'>
+                              <span className='text-[10px] text-slate-400 font-medium'>Быстрый выбор:</span>
+                              {availableCategories.map((cat) => (
+                                 <button
+                                    key={cat}
+                                    type='button'
+                                    onClick={() => setFormCategory(cat)}
+                                    className={`px-2 py-0.5 rounded-lg text-[10px] font-bold transition cursor-pointer ${
+                                       formCategory === cat
+                                          ? 'bg-teal-600 text-white shadow-2xs'
+                                          : 'bg-slate-100 text-slate-600 hover:bg-teal-50 hover:text-teal-700'
+                                    }`}
+                                 >
+                                    {cat}
+                                 </button>
+                              ))}
+                           </div>
+                        )}
                      </div>
 
                      {/* Поле: Медиаматериалы (Загрузка неограниченно фото и видео) */}
                      <div>
                         <div className='flex items-center justify-between mb-1.5'>
-                           <label className='block text-xs font-bold text-slate-700 uppercase tracking-wider'>
-                              Медиаматериалы (фото и видео)
+                           <label className='block text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5'>
+                              <span>Медиаматериалы (фото и видео)</span>
                            </label>
                            <span className='text-[11px] text-slate-400 font-medium'>
-                              {existingMedia.length + newMediaFiles.length > 0
-                                 ? `Выбрано: ${existingMedia.length + newMediaFiles.length}`
+                              {formMedia.length > 0
+                                 ? `Выбрано: ${formMedia.length}`
                                  : 'Неограниченно'}
                            </span>
                         </div>
+
+                        {/* Подсказка про обложку и порядок */}
+                        {formMedia.length > 1 && (
+                           <div className='flex items-center justify-between text-[11px] text-amber-900 bg-amber-50/90 px-3 py-1.5 rounded-xl border border-amber-200/90 mb-2'>
+                              <span className='flex items-center gap-1.5 font-medium'>
+                                 <Star className='w-3.5 h-3.5 text-amber-500 fill-amber-400 shrink-0' />
+                                 <span>
+                                    Первое медиа — это <strong>обложка</strong> (фото или видео). Нажмите <strong>«⭐ Обложка»</strong> или стрелочки <strong>◀ ▶</strong>, чтобы выбрать главное.
+                                 </span>
+                              </span>
+                           </div>
+                        )}
 
                         {/* Скрытый input с multiple для фото и видео */}
                         <input
@@ -1071,108 +1296,224 @@ export default function TrialNoveltiesTab({
                         />
 
                         <div className='space-y-2.5'>
-                           {/* Сетка выбранных медиафайлов */}
-                           {(existingMedia.length > 0 ||
-                              newMediaFiles.length > 0) && (
-                              <div className='grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2.5 max-h-52 overflow-y-auto p-1.5 bg-slate-50 rounded-2xl border border-slate-200'>
-                                 {/* Существующие медиа на сервере */}
-                                 {existingMedia.map((media, idx) => {
-                                    const url = getFullMediaUrl(media.url)
-                                    const isVid = media.type === 'video'
-                                    return (
-                                       <div
-                                          key={`existing-${idx}`}
-                                          className='relative aspect-square rounded-xl overflow-hidden bg-slate-900 border border-slate-200 group'
-                                       >
-                                          {isVid ? (
-                                             <div className='w-full h-full relative flex items-center justify-center bg-slate-950'>
-                                                <video
-                                                   src={url}
-                                                   className='w-full h-full object-cover opacity-80'
-                                                   preload='metadata'
-                                                />
-                                                <div className='absolute inset-0 flex items-center justify-center pointer-events-none'>
-                                                   <div className='w-7 h-7 rounded-full bg-teal-600/90 text-white flex items-center justify-center shadow'>
-                                                      <Play className='w-3.5 h-3.5 fill-white translate-x-0.5' />
-                                                   </div>
-                                                </div>
-                                                <span className='absolute bottom-1 left-1 px-1.5 py-0.5 rounded bg-black/75 text-[9px] font-black text-teal-300 uppercase tracking-wider'>
-                                                   ВИДЕО
-                                                </span>
-                                             </div>
-                                          ) : (
-                                             <img
-                                                src={url}
-                                                alt='Превью'
-                                                className='w-full h-full object-cover'
-                                             />
-                                          )}
-                                          {idx === 0 && (
-                                             <span className='absolute top-1 left-1 px-1.5 py-0.5 rounded bg-teal-600/90 text-white text-[9px] font-bold'>
-                                                Обложка
-                                             </span>
-                                          )}
-                                          <button
-                                             type='button'
-                                             onClick={() =>
-                                                handleRemoveExistingMedia(idx)
-                                             }
-                                             className='absolute top-1 right-1 p-1 rounded-lg bg-rose-600 text-white hover:bg-rose-700 transition shadow opacity-90 group-hover:opacity-100 cursor-pointer'
-                                             title='Удалить'
-                                          >
-                                             <Trash2 className='w-3.5 h-3.5' />
-                                          </button>
-                                       </div>
-                                    )
-                                 })}
-
-                                 {/* Новые выбранные файлы */}
-                                 {newMediaFiles.map((m) => {
+                           {/* Сетка выбранных медиафайлов (крупные карточки, строго в границах контейнера) */}
+                           {formMedia.length > 0 && (
+                              <div className='grid grid-cols-2 sm:grid-cols-3 gap-3 max-h-88 overflow-y-auto overflow-x-hidden p-2.5 bg-slate-50/80 rounded-2xl border border-slate-200 shadow-inner'>
+                                 {formMedia.map((m, idx) => {
+                                    const isCover = idx === 0
                                     const isVid = m.type === 'video'
+                                    const src = m.url ? getFullMediaUrl(m.url) : m.preview
+                                    const isUploading = m.status === 'uploading'
+                                    const isCompressing = m.status === 'compressing'
+                                    const isError = m.status === 'error'
+                                    const isReady = m.status === 'ready'
+                                    const sizeMb = m.size ? (m.size / (1024 * 1024)).toFixed(1) : null
+
                                     return (
                                        <div
                                           key={m.id}
-                                          className='relative aspect-square rounded-xl overflow-hidden bg-slate-900 border-2 border-teal-500/50 group'
+                                          draggable={!isSubmitting && isReady}
+                                          onDragStart={(e) => {
+                                             if (isReady) e.dataTransfer.setData('text/plain', idx.toString())
+                                          }}
+                                          onDragOver={(e) => {
+                                             e.preventDefault()
+                                          }}
+                                          onDrop={(e) => {
+                                             e.preventDefault()
+                                             const from = parseInt(e.dataTransfer.getData('text/plain'), 10)
+                                             if (!isNaN(from) && from !== idx) {
+                                                handleReorderMedia(from, idx)
+                                             }
+                                          }}
+                                          className={`relative aspect-square w-full min-w-0 rounded-2xl overflow-hidden bg-slate-950 border-2 transition-all group shadow-sm select-none ${
+                                             isCover && isReady
+                                                ? 'border-amber-400 ring-2 ring-amber-400/50 shadow-md shadow-amber-500/15'
+                                                : isError
+                                                  ? 'border-rose-400 ring-1 ring-rose-400/50'
+                                                  : isCompressing
+                                                    ? 'border-emerald-400 ring-2 ring-emerald-400/40'
+                                                    : isUploading
+                                                      ? 'border-teal-400'
+                                                      : 'border-slate-200 hover:border-teal-400 hover:shadow-md'
+                                          }`}
                                        >
+                                          {/* Превью медиа */}
                                           {isVid ? (
                                              <div className='w-full h-full relative flex items-center justify-center bg-slate-950'>
                                                 <video
-                                                   src={m.preview}
-                                                   className='w-full h-full object-cover opacity-80'
+                                                   src={src}
+                                                   className='w-full h-full object-cover opacity-85'
                                                    preload='metadata'
+                                                   muted
                                                 />
-                                                <div className='absolute inset-0 flex items-center justify-center pointer-events-none'>
-                                                   <div className='w-7 h-7 rounded-full bg-amber-500/90 text-white flex items-center justify-center shadow'>
-                                                      <Play className='w-3.5 h-3.5 fill-white translate-x-0.5' />
+                                                {isReady && (
+                                                   <div className='absolute inset-0 flex items-center justify-center pointer-events-none'>
+                                                      <div className='w-11 h-11 rounded-full bg-amber-500/90 text-white flex items-center justify-center shadow-lg group-hover:scale-110 transition'>
+                                                         <Play className='w-5 h-5 fill-white translate-x-0.5' />
+                                                      </div>
                                                    </div>
-                                                </div>
-                                                <span className='absolute bottom-1 left-1 px-1.5 py-0.5 rounded bg-black/75 text-[9px] font-black text-amber-300 uppercase tracking-wider'>
-                                                   НОВОЕ ВИДЕО
-                                                </span>
+                                                )}
                                              </div>
                                           ) : (
                                              <img
-                                                src={m.preview}
+                                                src={src}
                                                 alt='Превью'
-                                                className='w-full h-full object-cover'
+                                                className='w-full h-full object-cover group-hover:scale-105 transition duration-300'
                                              />
                                           )}
-                                          <span className='absolute top-1 left-1 px-1.5 py-0.5 rounded bg-teal-600/90 text-white text-[9px] font-bold'>
-                                             Новое
-                                          </span>
+
+                                          {/* 1. ОВЕРЛЕЙ: ЗАГРУЗКА ПРИ ПРИКРЕПЛЕНИИ */}
+                                          {isUploading && (
+                                             <div className='absolute inset-0 bg-slate-950/85 backdrop-blur-2xs flex flex-col items-center justify-center p-3 text-center z-10 animate-in fade-in'>
+                                                <Loader2 className='w-7 h-7 text-teal-400 animate-spin mb-1.5' />
+                                                <span className='text-xs font-black text-white'>
+                                                   Загрузка: {m.progress}%
+                                                </span>
+                                                <span className='text-[10px] text-teal-300 font-mono mt-0.5 font-bold'>
+                                                   {((m.loadedBytes || 0) / (1024 * 1024)).toFixed(1)} / {((m.totalBytes || m.size || 0) / (1024 * 1024)).toFixed(1)} МБ
+                                                </span>
+                                                <div className='w-4/5 h-2 bg-white/20 rounded-full mt-2 overflow-hidden'>
+                                                   <div
+                                                      className='h-full bg-gradient-to-r from-teal-400 to-emerald-400 transition-all duration-200'
+                                                      style={{ width: `${m.progress}%` }}
+                                                   />
+                                                </div>
+                                                <span className='text-[9px] text-slate-300 font-medium mt-1.5'>
+                                                   Передача на сервер...
+                                                </span>
+                                             </div>
+                                          )}
+
+                                          {/* 2. ОВЕРЛЕЙ: СЖАТИЕ НА СЕРВЕРЕ */}
+                                          {isCompressing && (
+                                             <div className='absolute inset-0 bg-slate-950/90 backdrop-blur-2xs flex flex-col items-center justify-center p-3 text-center z-10 animate-in fade-in'>
+                                                <div className='w-9 h-9 rounded-full bg-emerald-500/20 flex items-center justify-center mb-1.5 animate-pulse'>
+                                                   <Zap className='w-5 h-5 text-amber-400 fill-amber-400 animate-bounce' />
+                                                </div>
+                                                <span className='text-xs font-black text-emerald-300 leading-tight'>
+                                                   ⚡ Сжатие видео...
+                                                </span>
+                                                <span className='text-[10px] text-slate-300 leading-tight mt-1'>
+                                                   Оптимизация H.264 / 720p
+                                                </span>
+                                                <div className='w-4/5 h-1.5 bg-white/20 rounded-full mt-2 overflow-hidden'>
+                                                   <div className='h-full bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 w-full animate-pulse' />
+                                                </div>
+                                                <span className='text-[9px] text-amber-300 font-bold mt-1.5'>
+                                                   Подождите пару секунд...
+                                                </span>
+                                             </div>
+                                          )}
+
+                                          {/* 3. ОВЕРЛЕЙ: ОШИБКА */}
+                                          {isError && (
+                                             <div className='absolute inset-0 bg-rose-950/90 flex flex-col items-center justify-center p-3 text-center z-10 animate-in fade-in'>
+                                                <AlertCircle className='w-7 h-7 text-rose-400 mb-1' />
+                                                <span className='text-[10px] font-bold text-rose-200 leading-tight line-clamp-2'>
+                                                   {m.errorMessage || 'Ошибка загрузки'}
+                                                </span>
+                                             </div>
+                                          )}
+
+                                          {/* Бейдж Обложка / Кнопка сделать обложкой (когда готово) */}
+                                          {isReady && isCover && (
+                                             <span className='absolute top-2 left-2 px-2.5 py-1 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 text-white text-[10px] font-black uppercase tracking-wider flex items-center gap-1 shadow-md ring-1 ring-amber-300 pointer-events-none z-20'>
+                                                <Star className='w-3 h-3 fill-white' /> ОБЛОЖКА
+                                             </span>
+                                          )}
+                                          {isReady && !isCover && (
+                                             <button
+                                                type='button'
+                                                disabled={isSubmitting}
+                                                onClick={() => handleSetAsCover(idx)}
+                                                className='absolute top-2 left-2 px-2 py-1 rounded-xl bg-black/75 hover:bg-amber-500 text-slate-100 hover:text-white text-[10px] font-bold transition flex items-center gap-1 shadow cursor-pointer group/star opacity-90 hover:opacity-100 disabled:opacity-50 z-20'
+                                                title='Сделать обложкой'
+                                             >
+                                                <Star className='w-3 h-3 group-hover/star:fill-white text-amber-300' />
+                                                <span>Обложка</span>
+                                             </button>
+                                          )}
+
+                                          {/* Кнопка удалить */}
                                           <button
                                              type='button'
-                                             onClick={() =>
-                                                handleRemoveNewMedia(m.id)
-                                             }
-                                             className='absolute top-1 right-1 p-1 rounded-lg bg-rose-600 text-white hover:bg-rose-700 transition shadow opacity-90 group-hover:opacity-100 cursor-pointer'
+                                             disabled={isSubmitting}
+                                             onClick={() => handleRemoveMedia(m.id)}
+                                             className='absolute top-2 right-2 p-1.5 rounded-xl bg-rose-600/90 hover:bg-rose-700 text-white transition shadow opacity-85 hover:opacity-100 cursor-pointer disabled:opacity-50 z-20'
                                              title='Удалить'
                                           >
                                              <Trash2 className='w-3.5 h-3.5' />
                                           </button>
+
+                                          {/* Нижняя плашка: информация и стрелочки перемещения */}
+                                          {isReady && (
+                                             <div className='absolute bottom-2 left-2 right-2 flex items-center justify-between gap-1.5 pointer-events-auto z-20'>
+                                                <div className='flex items-center gap-1 min-w-0'>
+                                                   <span className='px-2 py-0.5 rounded-lg bg-black/85 backdrop-blur-xs text-[9px] font-black text-slate-200 uppercase tracking-wide truncate'>
+                                                      {isVid ? 'ВИДЕО' : 'ФОТО'}
+                                                      {sizeMb ? ` • ${sizeMb} М` : ''}
+                                                   </span>
+                                                   {m.originalSize && m.size && m.originalSize > m.size && (
+                                                      <span
+                                                         className='px-1.5 py-0.5 rounded-lg bg-emerald-600/90 text-[9px] font-bold text-white flex items-center gap-0.5 shadow'
+                                                         title={`Сжато с ${(m.originalSize / (1024 * 1024)).toFixed(0)} до ${sizeMb} МБ`}
+                                                      >
+                                                         <Zap className='w-2.5 h-2.5 text-amber-300' />
+                                                      </span>
+                                                   )}
+                                                </div>
+
+                                                {/* Стрелочки для изменения порядка */}
+                                                {formMedia.length > 1 && (
+                                                   <div className='flex items-center gap-0.5 bg-black/85 backdrop-blur-xs p-0.5 rounded-lg shadow shrink-0'>
+                                                      <button
+                                                         type='button'
+                                                         disabled={idx === 0 || isSubmitting}
+                                                         onClick={() => handleMoveMedia(idx, 'left')}
+                                                         className='p-1 rounded text-slate-300 hover:text-white hover:bg-white/20 disabled:opacity-20 disabled:pointer-events-none transition cursor-pointer'
+                                                         title='Сдвинуть влево'
+                                                      >
+                                                         <ChevronLeft className='w-3.5 h-3.5' />
+                                                      </button>
+                                                      <button
+                                                         type='button'
+                                                         disabled={idx === formMedia.length - 1 || isSubmitting}
+                                                         onClick={() => handleMoveMedia(idx, 'right')}
+                                                         className='p-1 rounded text-slate-300 hover:text-white hover:bg-white/20 disabled:opacity-20 disabled:pointer-events-none transition cursor-pointer'
+                                                         title='Сдвинуть вправо'
+                                                      >
+                                                         <ChevronRight className='w-3.5 h-3.5' />
+                                                      </button>
+                                                   </div>
+                                                )}
+                                             </div>
+                                          )}
                                        </div>
                                     )
                                  })}
+                              </div>
+                           )}
+
+                           {/* Информационный баннер процесса загрузки / сжатия */}
+                           {formMedia.some((m) => m.status === 'uploading' || m.status === 'compressing') && (
+                              <div className='p-3 rounded-2xl bg-gradient-to-r from-teal-50 via-emerald-50 to-blue-50 border border-teal-200 shadow-xs space-y-1.5 animate-in fade-in'>
+                                 <div className='flex items-center justify-between text-xs font-bold text-slate-800'>
+                                    <span className='flex items-center gap-2'>
+                                       <Loader2 className='w-4 h-4 text-teal-600 animate-spin shrink-0' />
+                                       {formMedia.some((m) => m.status === 'compressing') ? (
+                                          <span className='text-emerald-800 flex items-center gap-1.5'>
+                                             <Zap className='w-3.5 h-3.5 text-amber-500 fill-amber-400' />
+                                             Сервер оптимизирует и сжимает видео (FullHD/4K → 720p H.264)...
+                                          </span>
+                                       ) : (
+                                          <span>Передача медиафайлов на сервер при прикреплении...</span>
+                                       )}
+                                    </span>
+                                 </div>
+                                 <p className='text-[10px] text-slate-500 leading-relaxed'>
+                                    Видео и фото загружаются сразу при выборе. Подождите окончания перед сохранением.
+                                 </p>
                               </div>
                            )}
 
@@ -1184,9 +1525,7 @@ export default function TrialNoveltiesTab({
                               <div className='flex items-center justify-center gap-2 text-slate-500 group-hover:text-teal-600 mb-1 transition'>
                                  <Upload className='w-5 h-5' />
                                  <span className='text-xs font-bold text-slate-700 group-hover:text-teal-700'>
-                                    {existingMedia.length +
-                                       newMediaFiles.length >
-                                    0
+                                    {formMedia.length > 0
                                        ? '+ Добавить ещё фото или видео'
                                        : 'Нажмите для выбора фото и видео'}
                                  </span>
@@ -1230,25 +1569,44 @@ export default function TrialNoveltiesTab({
                            type='button'
                            onClick={() => setIsCreateModalOpen(false)}
                            disabled={isSubmitting}
-                           className='px-4 py-2.5 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 transition cursor-pointer'
+                           className='px-4 py-2.5 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-100 transition cursor-pointer disabled:opacity-50'
                         >
                            Отмена
                         </button>
-                        <button
-                           type='submit'
-                           disabled={isSubmitting}
-                           className='px-5 py-2.5 rounded-xl bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-700 hover:to-emerald-700 text-white text-xs font-bold shadow-md shadow-teal-600/20 transition disabled:opacity-50 cursor-pointer flex items-center gap-1.5'
-                        >
-                           {isSubmitting ? (
-                              <span>Сохранение...</span>
-                           ) : (
-                              <span>
-                                 {editingItem
-                                    ? 'Сохранить изменения'
-                                    : 'Создать новинку'}
-                              </span>
-                           )}
-                        </button>
+                        {(() => {
+                           const isAnyUploading = formMedia.some((m) => m.status === 'uploading')
+                           const isAnyCompressing = formMedia.some((m) => m.status === 'compressing')
+                           const isDisabled = isSubmitting || isAnyUploading || isAnyCompressing
+
+                           return (
+                              <button
+                                 type='submit'
+                                 disabled={isDisabled}
+                                 className='px-5 py-2.5 rounded-xl bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-700 hover:to-emerald-700 text-white text-xs font-bold shadow-md shadow-teal-600/20 transition disabled:opacity-50 cursor-pointer flex items-center gap-2'
+                              >
+                                 {isAnyCompressing ? (
+                                    <>
+                                       <Zap className='w-3.5 h-3.5 text-amber-300 fill-amber-300 animate-bounce' />
+                                       <span>Сжатие видео на сервере...</span>
+                                    </>
+                                 ) : isAnyUploading ? (
+                                    <>
+                                       <Loader2 className='w-3.5 h-3.5 animate-spin' />
+                                       <span>Загрузка файлов на сервер...</span>
+                                    </>
+                                 ) : isSubmitting ? (
+                                    <>
+                                       <Loader2 className='w-3.5 h-3.5 animate-spin' />
+                                       <span>Сохранение...</span>
+                                    </>
+                                 ) : (
+                                    <span>
+                                       {editingItem ? 'Сохранить изменения' : 'Создать новинку'}
+                                    </span>
+                                 )}
+                              </button>
+                           )
+                        })()}
                      </div>
                   </form>
                </div>
