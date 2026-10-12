@@ -4,7 +4,7 @@ import { AuthProvider } from '@/context/AuthContext';
 import { Toaster } from 'react-hot-toast';
 
 export const metadata: Metadata = {
-  title: 'TopFish Control — Управление производством',
+  title: 'ТопФиш Команда — Управление производством',
   description: 'Система еженедельного планирования производства, чеклистов и учета итогов цеха',
 };
 

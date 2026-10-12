@@ -23,6 +23,7 @@ import ClientsCallingTab from '@/components/ClientsCallingTab'
 import FinancialAnalysisTab from '@/components/FinancialAnalysisTab'
 import TechCardsTab from '@/components/TechCardsTab'
 import StockAnalyticsTab from '@/components/StockAnalyticsTab'
+import MonthlyPlanTab from '@/components/MonthlyPlanTab'
 import {
    RotateCcw,
    FlaskConical,
@@ -32,6 +33,7 @@ import {
    Wallet,
    ChefHat,
    BarChart3,
+   CalendarDays,
 } from 'lucide-react'
 
 export default function DashboardPage() {
@@ -47,7 +49,7 @@ export default function DashboardPage() {
 
    // Главные вкладки страницы: Основной план vs Вторые новинки vs База обзвона vs Анализ финансов vs Тех. карты vs Аналитика склада
    const [activeTab, setActiveTab] = useState<
-      'main_plan' | 'trial_novelties' | 'clients' | 'finance' | 'tech_cards' | 'stock_analytics'
+      'main_plan' | 'trial_novelties' | 'clients' | 'finance' | 'tech_cards' | 'stock_analytics' | 'monthly_plan'
    >('main_plan')
    const [clientsCount, setClientsCount] = useState<number>(0)
    const [trialStats, setTrialStats] = useState({
@@ -761,6 +763,29 @@ export default function DashboardPage() {
                          История
                       </span>
                    </button>
+
+                   {/* Вкладка «Месячный план & Контроль перебора» */}
+                   <button
+                      type='button'
+                      onClick={() => setActiveTab('monthly_plan')}
+                      className={`px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all flex items-center gap-2 cursor-pointer ${
+                         activeTab === 'monthly_plan'
+                            ? 'bg-gradient-to-r from-emerald-600 via-teal-700 to-slate-900 text-white shadow-md shadow-emerald-600/25 ring-1 ring-emerald-500/50'
+                            : 'bg-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                      }`}
+                   >
+                      <CalendarDays className='w-4 h-4 text-emerald-300' />
+                      <span>Месячный план</span>
+                      <span
+                         className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                            activeTab === 'monthly_plan'
+                               ? 'bg-white/20 text-white'
+                               : 'bg-emerald-50 text-emerald-700'
+                         }`}
+                      >
+                         Лимиты & Спрос
+                      </span>
+                   </button>
                </div>
 
                {/* Быстрая подсказка / статус */}
@@ -775,12 +800,16 @@ export default function DashboardPage() {
                            ? 'Технологические карты • Справочник ингредиентов, нормы и контроль цеха'
                            : activeTab === 'stock_analytics'
                              ? 'История остатков по загрузкам • Все загруженные файлы'
-                             : 'База клиентов и контрагентов • Обзвон и контакты'}
+                             : activeTab === 'monthly_plan'
+                              ? 'Месячный план производства • Контроль перебора и утилизации'
+                              : 'База клиентов и контрагентов • Обзвон и контакты'}
                </div>
             </div>
 
             {/* Контент активной вкладки */}
-            {activeTab === 'finance' && hasPermission('FULL_ACCESS') ? (
+            {activeTab === 'monthly_plan' ? (
+               <MonthlyPlanTab />
+            ) : activeTab === 'finance' && hasPermission('FULL_ACCESS') ? (
                <FinancialAnalysisTab currentWeek={displayWeek} />
             ) : activeTab === 'clients' && hasPermission('MANAGE_CLIENTS') ? (
                <ClientsCallingTab onCountChange={setClientsCount} />

@@ -343,7 +343,7 @@ export default function Checklist({
          return false
       if (
          currentFilter === 'stagnant' &&
-         item.smartMeta?.tag !== 'STAGNANT_STOCK'
+         (item.smartMeta?.tag !== 'STAGNANT_STOCK' || item.isNew)
       )
          return false
       if (currentFilter === 'longTime') {
@@ -441,7 +441,7 @@ export default function Checklist({
          i.smartMeta?.tag !== 'HIT_REPEAT'
    ).length
    const stagnantCount = activeItems.filter(
-      (i) => i.smartMeta?.tag === 'STAGNANT_STOCK'
+      (i) => i.smartMeta?.tag === 'STAGNANT_STOCK' && !i.isNew
    ).length
    const longTimeCount = activeItems.filter(
       (i) =>
@@ -1578,7 +1578,7 @@ export default function Checklist({
                            item.smartMeta?.tag === 'LONG_TIME_NO_PLAN' &&
                            !(weekStatus !== 'PLANNING' && item.isPlanned)
                         const isStagnant =
-                           item.smartMeta?.tag === 'STAGNANT_STOCK'
+                           item.smartMeta?.tag === 'STAGNANT_STOCK' && !item.isNew
 
                         let rowBgClass = 'hover:bg-slate-50/70'
                         if (item.isPlanned) {
@@ -2145,7 +2145,8 @@ export default function Checklist({
 
                                           {/* ❗ Бейдж Не продается / Застой остатка */}
                                           {item.smartMeta?.tag ===
-                                             'STAGNANT_STOCK' && (
+                                             'STAGNANT_STOCK' &&
+                                             !item.isNew && (
                                              <span
                                                 onMouseEnter={(e) => {
                                                    e.stopPropagation()

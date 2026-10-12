@@ -49,12 +49,16 @@ export default function Navbar({
         <div className="flex items-center justify-between h-16">
           {/* Бренд */}
           <div className="flex items-center gap-3 shrink-0 select-none">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-teal-600 to-emerald-500 text-white flex items-center justify-center shadow-md shadow-teal-500/20 shrink-0">
-              <Fish className="w-6 h-6" />
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-teal-600 to-emerald-500 p-1 flex items-center justify-center shadow-md shadow-teal-500/20 shrink-0 overflow-hidden">
+              <img
+                src="/logo.png"
+                alt="ТопФиш"
+                className="w-full h-full object-contain"
+              />
             </div>
             <div className="shrink-0">
               <span className="text-lg font-bold tracking-tight text-slate-900 block leading-tight whitespace-nowrap">
-                TopFish Control
+                ТопФиш Команда
               </span>
               <span className="text-xs text-teal-700 font-medium block whitespace-nowrap">
                 Цех и производство

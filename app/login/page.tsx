@@ -39,10 +39,14 @@ export default function LoginPage() {
       <div className="w-full max-w-md">
         {/* Логотип и заголовок */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-teal-500/20 border border-teal-500/40 text-teal-400 mb-4 shadow-lg shadow-teal-500/10">
-            <Fish className="w-8 h-8" />
+          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-tr from-teal-600 to-emerald-500 p-2 mb-4 shadow-lg shadow-teal-500/20 overflow-hidden">
+            <img
+              src="/logo.png"
+              alt="ТопФиш"
+              className="w-full h-full object-contain"
+            />
           </div>
-          <h1 className="text-3xl font-extrabold tracking-tight">TopFish Control</h1>
+          <h1 className="text-3xl font-extrabold tracking-tight">ТопФиш Команда</h1>
           <p className="text-slate-400 text-sm mt-1.5">
             Система планирования производства и учета цеха
           </p>
