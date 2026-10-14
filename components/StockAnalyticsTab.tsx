@@ -801,9 +801,9 @@ export default function StockAnalyticsTab() {
             </div>
           ) : (
             <div className="space-y-2">
-              {uploads.map((u) => (
+              {uploads.map((u, idx) => (
                 <div
-                  key={`${u.weekId}-${u.uploadedAt}`}
+                  key={`${u.weekId}-${u.savedExcelFile || u.uploadedAt}-${idx}`}
                   className="bg-white rounded-2xl border border-slate-200 shadow-xs p-4 flex flex-col sm:flex-row sm:items-start gap-4"
                 >
                   {/* Иконка файла */}
