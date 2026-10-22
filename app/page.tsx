@@ -25,6 +25,7 @@ import TechCardsTab from '@/components/TechCardsTab'
 import StockAnalyticsTab from '@/components/StockAnalyticsTab'
 import MonthlyPlanTab from '@/components/MonthlyPlanTab'
 import InventoryTab from '@/components/InventoryTab'
+import FreezerTab from '@/components/FreezerTab'
 import {
    RotateCcw,
    FlaskConical,
@@ -36,6 +37,7 @@ import {
    BarChart3,
    CalendarDays,
    ClipboardCheck,
+   Snowflake,
 } from 'lucide-react'
 
 export default function DashboardPage() {
@@ -51,7 +53,7 @@ export default function DashboardPage() {
 
    // Главные вкладки страницы: Основной план vs Вторые новинки vs База обзвона vs Анализ финансов vs Тех. карты vs Аналитика склада
    const [activeTab, setActiveTab] = useState<
-      'main_plan' | 'trial_novelties' | 'clients' | 'finance' | 'tech_cards' | 'stock_analytics' | 'monthly_plan' | 'inventory'
+      'main_plan' | 'trial_novelties' | 'clients' | 'finance' | 'tech_cards' | 'stock_analytics' | 'monthly_plan' | 'inventory' | 'freezer'
    >('main_plan')
    const [clientsCount, setClientsCount] = useState<number>(0)
    const [trialStats, setTrialStats] = useState({
@@ -811,6 +813,29 @@ export default function DashboardPage() {
                          Сверка
                       </span>
                    </button>
+
+                   {/* Вкладка «Склад Заморозки» */}
+                   <button
+                      type='button'
+                      onClick={() => setActiveTab('freezer')}
+                      className={`px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all flex items-center gap-2 cursor-pointer ${
+                         activeTab === 'freezer'
+                            ? 'bg-gradient-to-r from-cyan-600 via-teal-700 to-slate-900 text-white shadow-md shadow-cyan-950/25 ring-1 ring-cyan-500/50'
+                            : 'bg-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                      }`}
+                   >
+                      <Snowflake className='w-4 h-4 text-cyan-300' />
+                      <span>Заморозка</span>
+                      <span
+                         className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                            activeTab === 'freezer'
+                               ? 'bg-white/20 text-white'
+                               : 'bg-cyan-50 text-cyan-700'
+                         }`}
+                      >
+                         Сырьё
+                      </span>
+                   </button>
                </div>
 
                {/* Быстрая подсказка / статус */}
@@ -834,7 +859,9 @@ export default function DashboardPage() {
             </div>
 
             {/* Контент активной вкладки */}
-            {activeTab === 'inventory' ? (
+            {activeTab === 'freezer' ? (
+               <FreezerTab />
+            ) : activeTab === 'inventory' ? (
                <InventoryTab />
             ) : activeTab === 'monthly_plan' ? (
                <MonthlyPlanTab />
