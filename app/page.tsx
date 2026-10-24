@@ -26,6 +26,7 @@ import StockAnalyticsTab from '@/components/StockAnalyticsTab'
 import MonthlyPlanTab from '@/components/MonthlyPlanTab'
 import InventoryTab from '@/components/InventoryTab'
 import FreezerTab from '@/components/FreezerTab'
+import PriceTagsTab from '@/components/PriceTagsTab'
 import {
    RotateCcw,
    FlaskConical,
@@ -38,6 +39,7 @@ import {
    CalendarDays,
    ClipboardCheck,
    Snowflake,
+   Tag,
 } from 'lucide-react'
 
 export default function DashboardPage() {
@@ -53,7 +55,7 @@ export default function DashboardPage() {
 
    // Главные вкладки страницы: Основной план vs Вторые новинки vs База обзвона vs Анализ финансов vs Тех. карты vs Аналитика склада
    const [activeTab, setActiveTab] = useState<
-      'main_plan' | 'trial_novelties' | 'clients' | 'finance' | 'tech_cards' | 'stock_analytics' | 'monthly_plan' | 'inventory' | 'freezer'
+      'main_plan' | 'trial_novelties' | 'clients' | 'finance' | 'tech_cards' | 'stock_analytics' | 'monthly_plan' | 'inventory' | 'freezer' | 'price_tags'
    >('main_plan')
    const [clientsCount, setClientsCount] = useState<number>(0)
    const [trialStats, setTrialStats] = useState({
@@ -836,6 +838,29 @@ export default function DashboardPage() {
                          Сырьё
                       </span>
                    </button>
+
+                   {/* Вкладка «Генератор ценников» */}
+                   <button
+                      type='button'
+                      onClick={() => setActiveTab('price_tags')}
+                      className={`px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all flex items-center gap-2 cursor-pointer ${
+                         activeTab === 'price_tags'
+                            ? 'bg-gradient-to-r from-teal-600 via-cyan-600 to-indigo-700 text-white shadow-md shadow-teal-900/25 ring-1 ring-cyan-500/50'
+                            : 'bg-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                      }`}
+                   >
+                      <Tag className='w-4 h-4 text-cyan-300' />
+                      <span>Ценники</span>
+                      <span
+                         className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                            activeTab === 'price_tags'
+                               ? 'bg-white/20 text-white'
+                               : 'bg-cyan-50 text-cyan-700'
+                         }`}
+                      >
+                         Генератор
+                      </span>
+                   </button>
                </div>
 
                {/* Быстрая подсказка / статус */}
@@ -854,12 +879,16 @@ export default function DashboardPage() {
                               ? 'Месячный план производства • Контроль перебора и утилизации'
                               : activeTab === 'inventory'
                                 ? 'Сверка склада 1С • Недостачи, излишки и отклонения'
-                                : 'База клиентов и контрагентов • Обзвон и контакты'}
+                                : activeTab === 'price_tags'
+                                     ? 'Генератор ценников • Фирменные карточки ТопФиш (Х/К, Г/К, С/С, ВЯЛ)'
+                                     : 'База клиентов и контрагентов • Обзвон и контакты'}
                </div>
             </div>
 
             {/* Контент активной вкладки */}
-            {activeTab === 'freezer' ? (
+            {activeTab === 'price_tags' ? (
+               <PriceTagsTab catalogItems={items} />
+            ) : activeTab === 'freezer' ? (
                <FreezerTab />
             ) : activeTab === 'inventory' ? (
                <InventoryTab />
