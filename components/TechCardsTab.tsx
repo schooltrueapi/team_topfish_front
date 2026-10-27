@@ -30,6 +30,7 @@ import {
   RotateCcw,
   BookOpen,
   Filter,
+  Snowflake,
 } from 'lucide-react';
 
 export interface TechIngredient {
@@ -59,6 +60,12 @@ export interface TechCardItem {
   ingredient?: TechIngredient | null;
 }
 
+export interface RawMaterialItem {
+  productName: string;
+  amount: number;
+  unit?: string;
+}
+
 export interface TechCard {
   id: string;
   productName: string;
@@ -67,6 +74,7 @@ export interface TechCard {
   targetOutputPercent?: number;
   lossPercent?: number;
   comment?: string | null;
+  rawMaterials?: RawMaterialItem[] | null;
   createdByName?: string | null;
   createdAt: string;
   items: TechCardItem[];
@@ -131,6 +139,15 @@ export default function TechCardsTab() {
   const [templates, setTemplates] = useState<TechCard[]>([]);
   const [batches, setBatches] = useState<ProductionBatch[]>([]);
   const [productsList, setProductsList] = useState<any[]>([]);
+  const [freezerMaterials, setFreezerMaterials] = useState<Array<{
+    id: string;
+    productName: string;
+    weightKg: number;
+    pricePerKg: number;
+    totalCost: number;
+    hasStock: boolean;
+  }>>([]);
+  const [latestFreezerDoc, setLatestFreezerDoc] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   // Поиск и фильтры
@@ -173,6 +190,7 @@ export default function TechCardsTab() {
     targetOutputPercent: number;
     lossPercent: number;
     comment: string;
+    rawMaterials: RawMaterialItem[];
     items: Array<{
       ingredientId: string;
       name: string;
@@ -187,6 +205,7 @@ export default function TechCardsTab() {
     targetOutputPercent: 70,
     lossPercent: 30,
     comment: '',
+    rawMaterials: [],
     items: [],
   });
 
@@ -204,17 +223,20 @@ export default function TechCardsTab() {
   const fetchAllData = async () => {
     try {
       setIsLoading(true);
-      const [ingRes, tplRes, batchRes, prodRes] = await Promise.all([
+      const [ingRes, tplRes, batchRes, prodRes, freezerRes] = await Promise.all([
         api.get('/api/tech-cards/ingredients').catch(() => ({ data: [] })),
         api.get('/api/tech-cards/templates').catch(() => ({ data: [] })),
         api.get('/api/tech-cards/batches').catch(() => ({ data: [] })),
         api.get('/api/tech-cards/products-list').catch(() => ({ data: [] })),
+        api.get('/api/tech-cards/freezer-raw-materials').catch(() => ({ data: { doc: null, items: [] } })),
       ]);
 
       setIngredients(ingRes.data || []);
       setTemplates(tplRes.data || []);
       setBatches(batchRes.data || []);
       setProductsList(prodRes.data || []);
+      setFreezerMaterials(freezerRes.data?.items || []);
+      setLatestFreezerDoc(freezerRes.data?.doc || null);
     } catch (e) {
       console.error('Ошибка загрузки данных техкарт:', e);
       toast.error('Не удалось загрузить данные тех. карт');
@@ -323,6 +345,7 @@ export default function TechCardsTab() {
         targetOutputPercent: tpl.targetOutputPercent || 70,
         lossPercent: tpl.lossPercent || 30,
         comment: tpl.comment || '',
+        rawMaterials: Array.isArray(tpl.rawMaterials) ? [...tpl.rawMaterials] : [],
         items: tpl.items.map((it) => ({
           ingredientId: it.ingredientId || '',
           name: it.name,
@@ -340,6 +363,7 @@ export default function TechCardsTab() {
         targetOutputPercent: 70,
         lossPercent: 30,
         comment: '',
+        rawMaterials: [],
         items: [],
       });
     }
@@ -859,6 +883,36 @@ export default function TechCardsTab() {
                           </div>
                         )}
                       </div>
+                    </div>
+
+                    {/* Основное сырьё из заморозки */}
+                    <div className='bg-sky-50/80 rounded-xl p-2.5 border border-sky-100 space-y-1.5 text-xs'>
+                      <div className='text-[10px] font-black text-sky-800 uppercase tracking-wider flex items-center justify-between'>
+                        <span className='flex items-center gap-1'>
+                          <Snowflake className='w-3 h-3 text-sky-600' />
+                          <span>Сырьё из заморозки:</span>
+                        </span>
+                        {Array.isArray(tpl.rawMaterials) && tpl.rawMaterials.length > 0 && (
+                          <span className='text-[10px] text-sky-700 font-bold'>
+                            {tpl.rawMaterials.reduce((acc, r) => acc + (r.amount || 0), 0)} / {tpl.baseWeight} кг
+                          </span>
+                        )}
+                      </div>
+                      {!Array.isArray(tpl.rawMaterials) || tpl.rawMaterials.length === 0 ? (
+                        <div className='text-sky-600/70 text-[11px] italic'>Сырьё ещё не привязано</div>
+                      ) : (
+                        <div className='flex flex-wrap gap-1'>
+                          {tpl.rawMaterials.map((rm, idx) => (
+                            <span
+                              key={idx}
+                              className='inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white border border-sky-200 text-sky-900 font-bold text-[11px] shadow-2xs'
+                            >
+                              <span>{rm.productName}</span>
+                              <span className='text-sky-600 font-extrabold'>{rm.amount} {rm.unit || 'кг'}</span>
+                            </span>
+                          ))}
+                        </div>
+                      )}
                     </div>
 
                     {/* Состав рецепта */}
@@ -1539,6 +1593,140 @@ export default function TechCardsTab() {
                     className='w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 font-bold text-amber-600'
                   />
                 </div>
+              </div>
+
+              {/* Основное сырьё из заморозки */}
+              <div className='space-y-3 pt-3 border-t border-slate-100'>
+                <div className='flex items-center justify-between'>
+                  <div>
+                    <div className='flex items-center gap-1.5'>
+                      <Snowflake className='w-4 h-4 text-sky-600' />
+                      <span className='text-xs font-black text-slate-800 uppercase tracking-wider'>
+                        Основное сырьё (Склад Заморозки)
+                      </span>
+                    </div>
+                    <p className='text-[11px] text-slate-400 mt-0.5'>
+                      Выберите рыбу или фарш со склада заморозки и расход на {templateForm.baseWeight} кг
+                    </p>
+                  </div>
+                  <button
+                    type='button'
+                    onClick={() => {
+                      const firstMat = freezerMaterials[0]?.productName || '';
+                      setTemplateForm({
+                        ...templateForm,
+                        rawMaterials: [
+                          ...templateForm.rawMaterials,
+                          { productName: firstMat, amount: templateForm.baseWeight, unit: 'kg' },
+                        ],
+                      });
+                    }}
+                    className='inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-sky-50 text-sky-700 hover:bg-sky-100 text-xs font-bold transition cursor-pointer border border-sky-200'
+                  >
+                    <Plus className='w-3.5 h-3.5' />
+                    <span>+ Добавить сырьё</span>
+                  </button>
+                </div>
+
+                {templateForm.rawMaterials.length === 0 ? (
+                  <div className='text-center py-5 text-slate-400 bg-sky-50/40 rounded-xl border border-dashed border-sky-200 text-xs'>
+                    <Snowflake className='w-5 h-5 mx-auto text-sky-300 mb-1' />
+                    Нажмите «+ Добавить сырьё», чтобы привязать позиции из файла заморозки к этой тех. карте
+                  </div>
+                ) : (
+                  <div className='space-y-2 max-h-56 overflow-y-auto pr-1'>
+                    {templateForm.rawMaterials.map((rm, idx) => {
+                      const matchedStock = freezerMaterials.find(
+                        (f) => f.productName.toLowerCase() === rm.productName.toLowerCase()
+                      );
+                      return (
+                        <div key={idx} className='p-2.5 bg-slate-50 rounded-xl border border-slate-200 space-y-1.5'>
+                          <div className='flex items-center gap-2'>
+                            <div className='flex-1 relative'>
+                              <input
+                                type='text'
+                                list={`freezer-materials-list-${idx}`}
+                                placeholder='Начните вводить или выберите из заморозки...'
+                                value={rm.productName}
+                                onChange={(e) => {
+                                  const next = [...templateForm.rawMaterials];
+                                  next[idx].productName = e.target.value;
+                                  setTemplateForm({ ...templateForm, rawMaterials: next });
+                                }}
+                                className='w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold text-slate-900 focus:outline-none focus:ring-1 focus:ring-sky-500'
+                              />
+                              <datalist id={`freezer-materials-list-${idx}`}>
+                                {freezerMaterials.map((fm) => (
+                                  <option key={fm.id} value={fm.productName}>
+                                    {fm.productName} ({fm.weightKg} кг в наличии · {fm.pricePerKg} ₽/кг)
+                                  </option>
+                                ))}
+                              </datalist>
+                            </div>
+
+                            <div className='flex items-center gap-1 shrink-0'>
+                              <input
+                                type='number'
+                                step='0.1'
+                                min='0'
+                                placeholder='Кол-во'
+                                value={rm.amount}
+                                onChange={(e) => {
+                                  const next = [...templateForm.rawMaterials];
+                                  next[idx].amount = parseFloat(e.target.value) || 0;
+                                  setTemplateForm({ ...templateForm, rawMaterials: next });
+                                }}
+                                className='w-24 px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-black text-slate-900 focus:outline-none focus:ring-1 focus:ring-sky-500'
+                              />
+                              <span className='text-xs font-bold text-slate-500 w-8'>кг</span>
+                            </div>
+
+                            <button
+                              type='button'
+                              onClick={() => {
+                                const next = templateForm.rawMaterials.filter((_, i) => i !== idx);
+                                setTemplateForm({ ...templateForm, rawMaterials: next });
+                              }}
+                              className='p-1.5 text-slate-400 hover:text-rose-600 transition cursor-pointer'
+                              title='Удалить сырьё'
+                            >
+                              <X className='w-4 h-4' />
+                            </button>
+                          </div>
+
+                          {/* Информация о наличии на складе */}
+                          <div className='flex items-center justify-between text-[11px] px-1'>
+                            {matchedStock ? (
+                              <span className={`inline-flex items-center gap-1 font-bold ${matchedStock.weightKg > 0 ? 'text-emerald-700' : 'text-rose-600'}`}>
+                                <span>{matchedStock.weightKg > 0 ? '🟢 В наличии:' : '⚠️ Нет на складе:'}</span>
+                                <span>{matchedStock.weightKg} кг</span>
+                                {matchedStock.pricePerKg > 0 && (
+                                  <span className='text-slate-400 font-normal'>({matchedStock.pricePerKg} ₽/кг)</span>
+                                )}
+                              </span>
+                            ) : (
+                              <span className='text-amber-600 font-medium'>
+                                🔍 Название не найдено в последнем файле остатков заморозки
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+
+                    {/* Индикатор общего веса сырья */}
+                    <div className='flex items-center justify-between px-2 pt-1 text-xs'>
+                      <span className='text-slate-500 font-medium'>Суммарный вес сырья:</span>
+                      <span className={`font-black ${
+                        templateForm.rawMaterials.reduce((a, b) => a + (b.amount || 0), 0) === templateForm.baseWeight
+                          ? 'text-emerald-600'
+                          : 'text-amber-600'
+                      }`}>
+                        {templateForm.rawMaterials.reduce((a, b) => a + (b.amount || 0), 0)} / {templateForm.baseWeight} кг
+                      </span>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Состав рецепта: добавление ингредиентов */}

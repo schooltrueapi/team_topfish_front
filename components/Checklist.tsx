@@ -29,6 +29,7 @@ import {
    Pencil,
    FlaskConical,
    Eye,
+   Snowflake,
 } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import BulkPlanModal, { BulkActionType } from './BulkPlanModal'
@@ -49,6 +50,7 @@ export interface PlanItem {
    isNew: boolean
    newExpiresAt?: string | null
    isPlanned: boolean
+   plannedKg?: number | null
    isDeleted?: boolean
    deletedAt?: string | null
    lastUpdatedBy?: string | null
@@ -234,6 +236,113 @@ export default function Checklist({
       url: string
       title: string
    } | null>(null)
+
+   // Потребность в сырье заморозки под план
+   const [rawMaterialsSummary, setRawMaterialsSummary] = useState<any>(null)
+   const [isRawMaterialsLoading, setIsRawMaterialsLoading] = useState(false)
+   const [isSummaryModalOpen, setIsSummaryModalOpen] = useState(false)
+   const [summaryFilter, setSummaryFilter] = useState<'ALL' | 'DEFICIT' | 'IN_STOCK'>('ALL')
+
+   // Редактирование планового объема (кг)
+   const [editingPlannedKgId, setEditingPlannedKgId] = useState<string | null>(null)
+   const [plannedKgInput, setPlannedKgInput] = useState<string>('')
+   const [isSavingPlannedKg, setIsSavingPlannedKg] = useState(false)
+
+   const fetchRawMaterialsSummary = async () => {
+      if (!weekId) return
+      try {
+         setIsRawMaterialsLoading(true)
+         const res = await api.get(`/api/plan/weeks/${weekId}/raw-materials-summary`)
+         setRawMaterialsSummary(res.data)
+      } catch (err) {
+         console.error('Ошибка загрузки сводки сырья:', err)
+      } finally {
+         setIsRawMaterialsLoading(false)
+      }
+   }
+
+   useEffect(() => {
+      fetchRawMaterialsSummary()
+   }, [weekId, items])
+
+   const handleSavePlannedKg = async (itemId: string, val: string) => {
+      try {
+         setIsSavingPlannedKg(true)
+         const res = await api.put(`/api/plan/item/${itemId}/planned-kg`, {
+            plannedKg: val.trim() === '' ? null : val,
+         })
+         const foundItem = items.find((i) => i.id === itemId)
+         if (foundItem) {
+            onItemUpdated({
+               ...foundItem,
+               ...res.data,
+               abcCategory: foundItem.abcCategory,
+               rawAbcCategory: foundItem.rawAbcCategory,
+               isHit: foundItem.isHit,
+               rawIsHit: foundItem.rawIsHit,
+               salesPercent: foundItem.salesPercent,
+               salesHistoryWeeks: foundItem.salesHistoryWeeks,
+               smartMeta: foundItem.smartMeta,
+               abcManualDisabled: foundItem.abcManualDisabled,
+            })
+         }
+         setEditingPlannedKgId(null)
+         fetchRawMaterialsSummary()
+         toast.success('Плановый объем обновлен')
+      } catch (err: any) {
+         toast.error(err.response?.data?.error || 'Ошибка сохранения планового объема')
+      } finally {
+         setIsSavingPlannedKg(false)
+      }
+   }
+
+   const handleCopyDeficitToClipboard = () => {
+      if (!rawMaterialsSummary) return
+      const deficits = (rawMaterialsSummary.summary || []).filter((s: any) => s.isDeficit)
+      if (deficits.length === 0) {
+         toast.success('Все сырье в наличии! Дефицита нет 🎉')
+         return
+      }
+
+      const lines = [
+         `📦 ДЕФИЦИТ СЫРЬЯ (ЗАМОРОЗКА) ПОД ПЛАН ПРОИЗВОДСТВА`,
+         `Неделя №${weekNumber} (${rawMaterialsSummary.latestFreezerDoc?.fileName ? `на основе: ${rawMaterialsSummary.latestFreezerDoc.fileName}` : 'актуальные остатки'})`,
+         `Всего позиций с нехваткой: ${deficits.length}`,
+         `Примерная сумма к закупке: ${rawMaterialsSummary.totalDeficitCost?.toLocaleString('ru-RU')} ₽\n`,
+         ...deficits.map((d: any, idx: number) => {
+            const prodNames = (d.products || []).map((p: any) => p.productName).join(', ')
+            return `${idx + 1}. ${d.productName}: не хватает ${d.deficitKg} кг (нужно: ${d.requiredKg} кг, на складе: ${d.availableKg} кг, ~${d.deficitCost?.toLocaleString('ru-RU')} ₽)${prodNames ? ` [Для: ${prodNames}]` : ''}`
+         }),
+      ]
+
+      navigator.clipboard.writeText(lines.join('\n'))
+      toast.success('Список дефицита скопирован в буфер обмена! 📋')
+   }
+
+   const handleExportCsv = () => {
+      if (!rawMaterialsSummary?.summary) return
+      const list = rawMaterialsSummary.summary
+      const header = ['Сырьё из заморозки', 'Требуется (кг)', 'В наличии (кг)', 'Баланс (кг)', 'Дефицит (кг)', 'Цена за кг (₽)', 'Сумма закупки (₽)', 'Для продукции']
+      const rows = list.map((item: any) => [
+         `"${item.productName.replace(/"/g, '""')}"`,
+         item.requiredKg,
+         item.availableKg,
+         item.deltaKg,
+         item.isDeficit ? item.deficitKg : 0,
+         item.pricePerKg,
+         item.deficitCost,
+         `"${(item.products || []).map((p: any) => `${p.productName} (${p.neededKg}кг)`).join('; ').replace(/"/g, '""')}"`,
+      ])
+
+      const csvContent = '\uFEFF' + [header.join(';'), ...rows.map((r: any) => r.join(';'))].join('\r\n')
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `Потребность_в_сырье_неделя_${weekNumber}.csv`
+      link.click()
+      URL.revokeObjectURL(url)
+   }
 
    const getFullImageUrl = (path?: string | null) => {
       if (!path) return null
@@ -1114,6 +1223,30 @@ export default function Checklist({
                      <div className='hidden sm:block w-px h-7 bg-slate-200' />
                   )}
 
+                  {/* Кнопка потребности в сырье (дефицит заморозки) */}
+                  <button
+                     type='button'
+                     onClick={() => setIsSummaryModalOpen(true)}
+                     className={`px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 border shadow-xs cursor-pointer ${
+                        rawMaterialsSummary?.deficitPositionsCount > 0
+                           ? 'bg-rose-50 hover:bg-rose-100 text-rose-800 border-rose-300'
+                           : 'bg-sky-50 hover:bg-sky-100 text-sky-800 border-sky-200'
+                     }`}
+                     title='Сводная потребность в сырье со склада заморозки под запланированные позиции недели'
+                  >
+                     <Snowflake className={`w-4 h-4 ${rawMaterialsSummary?.deficitPositionsCount > 0 ? 'text-rose-600 animate-pulse' : 'text-sky-600'}`} />
+                     <span className='whitespace-nowrap'>Потребность в сырье</span>
+                     {rawMaterialsSummary?.deficitPositionsCount > 0 ? (
+                        <span className='px-2 py-0.5 rounded-full text-[10px] font-black bg-rose-600 text-white animate-pulse shadow-xs whitespace-nowrap'>
+                           ⚠️ Дефицит: {rawMaterialsSummary.deficitPositionsCount} поз.
+                        </span>
+                     ) : rawMaterialsSummary?.summary?.length > 0 ? (
+                        <span className='px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-600 text-white whitespace-nowrap'>
+                           🟢 В наличии
+                        </span>
+                     ) : null}
+                  </button>
+
                   {/* Группа: Утверждение плана */}
                   {weekStatus === 'PLANNING' && (
                      <button
@@ -1488,7 +1621,7 @@ export default function Checklist({
                         <th className='px-3 py-3 text-left'>
                            Наименование продукции
                         </th>
-                        <th className='px-2 py-3 text-left whitespace-nowrap w-[120px]'>
+                        <th className='px-3 py-3 text-left whitespace-nowrap w-[170px]'>
                            Категория
                         </th>
                         {isClosed && (
@@ -1701,19 +1834,19 @@ export default function Checklist({
 
                                     <div className='flex flex-col min-w-0'>
                                        <div className='flex flex-wrap items-center gap-1.5'>
-                                          <span
-                                             className={`font-bold text-xs sm:text-sm ${
-                                                item.isTrialNovelty
-                                                   ? 'text-purple-950 font-black'
-                                                   : item.isPlanned
-                                                     ? 'text-slate-900'
-                                                     : isHit
-                                                       ? 'text-orange-950 font-black'
-                                                       : 'text-slate-700'
-                                             }`}
-                                          >
-                                             {item.productName}
-                                          </span>
+                                           <span
+                                              className={`font-bold text-xs sm:text-sm ${
+                                                 item.isTrialNovelty
+                                                    ? 'text-purple-950 font-black'
+                                                    : item.isPlanned
+                                                      ? 'text-slate-900'
+                                                      : isHit
+                                                        ? 'text-orange-950 font-black'
+                                                        : 'text-slate-700'
+                                              }`}
+                                           >
+                                              {item.productName}
+                                           </span>
 
                                            {/* Значок истории остатков и смены категорий */}
                                            <button
@@ -1727,6 +1860,87 @@ export default function Checklist({
                                            >
                                               <History className='w-3.5 h-3.5' />
                                            </button>
+
+                                           {/* Отдельный значок наличия сырья на складе заморозки */}
+                                           {(() => {
+                                              const normName = item.productName.trim().toLowerCase()
+                                              const rawInfo = rawMaterialsSummary?.productRawMaterials?.[normName]
+                                              const hasTech = Boolean(rawInfo?.hasTechCard)
+                                              const hasRaw = Boolean(rawInfo && rawInfo.rawMaterialsCount > 0)
+                                              const allInStock = Boolean(rawInfo?.allAvailable)
+
+                                              let btnStyle = 'text-slate-300 hover:text-slate-500 hover:bg-slate-100 border-transparent hover:border-slate-200'
+                                              let dot = null
+
+                                              if (hasTech && hasRaw) {
+                                                 if (allInStock) {
+                                                    btnStyle = 'text-teal-700 bg-teal-50/80 hover:bg-teal-100 border-teal-200 shadow-2xs'
+                                                    dot = <span className='w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0' />
+                                                 } else {
+                                                    btnStyle = 'text-rose-700 bg-rose-100 hover:bg-rose-200 border-rose-300 shadow-2xs animate-pulse'
+                                                    dot = <span className='w-1.5 h-1.5 rounded-full bg-rose-600 shrink-0' />
+                                                 }
+                                              } else if (hasTech) {
+                                                 btnStyle = 'text-amber-600/80 bg-amber-50/50 hover:bg-amber-100 border-amber-200/60'
+                                              }
+
+                                              return (
+                                                 <button
+                                                    type='button'
+                                                    onClick={(e) => {
+                                                       e.stopPropagation()
+                                                       setIsSummaryModalOpen(true)
+                                                    }}
+                                                    onMouseEnter={(e) => {
+                                                       e.stopPropagation()
+                                                       setHoveredTooltip({
+                                                          item,
+                                                          rect: e.currentTarget.getBoundingClientRect(),
+                                                          customContent: {
+                                                             icon: '❄️',
+                                                             title: item.productName,
+                                                             titleColor: 'text-white font-black',
+                                                             subtitle: `Склад Заморозки • ${item.category || 'Без категории'}`,
+                                                             description: !hasTech
+                                                                ? 'Для этой позиции ещё не создана технологическая карта.'
+                                                                : !hasRaw
+                                                                  ? 'В тех. карте этой позиции ещё не привязано сырьё из склада заморозки.'
+                                                                  : allInStock
+                                                                    ? 'Всё необходимое сырьё из техкарты в достаточном количестве есть на складе заморозки.'
+                                                                    : 'Внимание: на складе заморозки не хватает сырья для производства этой позиции!',
+                                                             headerBadge: !hasTech
+                                                                ? 'Без тех. карты'
+                                                                : !hasRaw
+                                                                  ? 'Сырьё не привязано'
+                                                                  : allInStock
+                                                                    ? '🟢 Сырьё в наличии'
+                                                                    : '🔴 Дефицит сырья',
+                                                             headerBadgeClass: !hasTech || !hasRaw
+                                                                ? 'bg-slate-700 text-slate-300 border border-slate-600'
+                                                                : allInStock
+                                                                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                                                                  : 'bg-rose-500/20 text-rose-300 border border-rose-500/30',
+                                                             footerHint: 'Нажмите, чтобы открыть подробную сводку потребности цеха',
+                                                          },
+                                                       })
+                                                    }}
+                                                    onMouseLeave={() => setHoveredTooltip(null)}
+                                                    className={`p-1 rounded-lg border transition cursor-pointer shrink-0 inline-flex items-center gap-1 ${btnStyle}`}
+                                                    title={
+                                                       !hasTech
+                                                          ? 'Сырьё: Тех. карта не создана'
+                                                          : !hasRaw
+                                                            ? 'Сырьё: Не привязано к тех. карте'
+                                                            : allInStock
+                                                              ? 'Сырьё: В наличии на складе заморозки'
+                                                              : 'Сырьё: Нехватка на складе заморозки!'
+                                                    }
+                                                 >
+                                                    <Snowflake className='w-3.5 h-3.5' />
+                                                    {dot}
+                                                 </button>
+                                              )
+                                           })()}
 
                                           {/* Специальный бейдж для новинки-идеи */}
                                           {item.isTrialNovelty && (
@@ -2254,12 +2468,131 @@ export default function Checklist({
                                              </button>
                                           ) : null}
                                        </div>
+
+                                       {/* Подстрока для плановых позиций: План (кг) + Наличие сырья */}
+                                       {item.isPlanned && (
+                                          <div
+                                             className='flex flex-wrap items-center gap-2 mt-1.5 pt-1.5 border-t border-teal-200/60'
+                                             onClick={(e) => e.stopPropagation()}
+                                          >
+                                             {/* План (кг) */}
+                                             <div className='inline-flex items-center gap-1.5 bg-white/90 px-2 py-0.5 rounded-lg border border-teal-200/90 shadow-2xs'>
+                                                <span className='text-[10px] font-bold text-teal-800 uppercase tracking-wider'>
+                                                   План:
+                                                </span>
+                                                {editingPlannedKgId === item.id ? (
+                                                   <div className='flex items-center gap-1'>
+                                                      <input
+                                                         type='number'
+                                                         step='0.1'
+                                                         min='0'
+                                                         autoFocus
+                                                         placeholder='кг'
+                                                         value={plannedKgInput}
+                                                         onChange={(e) => setPlannedKgInput(e.target.value)}
+                                                         onKeyDown={(e) => {
+                                                            if (e.key === 'Enter') {
+                                                               handleSavePlannedKg(item.id, plannedKgInput)
+                                                            } else if (e.key === 'Escape') {
+                                                               setEditingPlannedKgId(null)
+                                                            }
+                                                         }}
+                                                         onBlur={() => handleSavePlannedKg(item.id, plannedKgInput)}
+                                                         className='w-16 px-1.5 py-0.5 bg-white border-2 border-teal-500 rounded text-xs font-black text-slate-900 focus:outline-none text-center shadow-xs'
+                                                      />
+                                                      <span className='text-[10px] font-bold text-slate-400'>кг</span>
+                                                   </div>
+                                                ) : (
+                                                   <button
+                                                      type='button'
+                                                      onClick={() => {
+                                                         setEditingPlannedKgId(item.id)
+                                                         setPlannedKgInput(
+                                                            item.plannedKg !== null && item.plannedKg !== undefined
+                                                               ? String(item.plannedKg)
+                                                               : ''
+                                                         )
+                                                      }}
+                                                      disabled={!canTogglePlan}
+                                                      className={`inline-flex items-center gap-1 text-xs font-bold transition ${
+                                                         canTogglePlan ? 'cursor-pointer hover:text-teal-900' : 'cursor-default'
+                                                      } ${
+                                                         item.plannedKg !== null && item.plannedKg !== undefined && item.plannedKg > 0
+                                                            ? 'text-teal-900 font-extrabold'
+                                                            : 'text-slate-500 hover:text-slate-800'
+                                                      }`}
+                                                      title='Нажмите, чтобы ввести точный плановый объем (кг) на эту неделю'
+                                                   >
+                                                      {item.plannedKg !== null && item.plannedKg !== undefined && item.plannedKg > 0 ? (
+                                                         <span>{item.plannedKg} кг</span>
+                                                      ) : (
+                                                         <span className='text-[11px] font-semibold text-teal-700/80 underline decoration-dashed decoration-teal-400 underline-offset-2'>
+                                                            {rawMaterialsSummary?.itemDeficits?.[item.id]?.plannedKg
+                                                               ? `~${rawMaterialsSummary.itemDeficits[item.id].plannedKg} кг`
+                                                               : '+ Задать кг'}
+                                                         </span>
+                                                      )}
+                                                      {canTogglePlan && <Pencil className='w-2.5 h-2.5 text-teal-600' />}
+                                                   </button>
+                                                )}
+                                             </div>
+
+                                             {/* Наличие сырья на складе заморозки */}
+                                             <div className='inline-flex items-center gap-1.5'>
+                                                {(() => {
+                                                   const def = rawMaterialsSummary?.itemDeficits?.[item.id]
+                                                   if (!def || !def.hasTechCard) {
+                                                      return (
+                                                         <span className='inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium text-slate-400 bg-slate-50 border border-slate-200'>
+                                                            <span>⚪</span>
+                                                            <span>Без тех. карты</span>
+                                                         </span>
+                                                      )
+                                                   }
+                                                   if (def.rawMaterialsCount === 0) {
+                                                      return (
+                                                         <span className='inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium text-slate-400 bg-slate-50 border border-slate-200'>
+                                                            <span>❄️</span>
+                                                            <span>Сырьё не привязано</span>
+                                                         </span>
+                                                      )
+                                                   }
+                                                   if (def.hasDeficit) {
+                                                      const shortStr = (def.missingMaterials || [])
+                                                          .map((m: any) => `${m.shortageKg} кг (${m.name})`).join(', ')
+                                                      return (
+                                                         <button
+                                                            type='button'
+                                                            onClick={() => setIsSummaryModalOpen(true)}
+                                                            className='inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-rose-100 hover:bg-rose-200 text-rose-800 border border-rose-300 transition shadow-2xs cursor-pointer animate-pulse'
+                                                            title={`Не хватает сырья для этой позиции:\n${(def.missingMaterials || []).map((m: any) => `• ${m.name}: нужно ${m.neededKg} кг, есть ${m.availableKg} кг (дефицит: ${m.shortageKg} кг)`).join('\n')}\n\nНажмите для открытия подробной сводки`}
+                                                         >
+                                                            <span>⚠️ Нехватка сырья:</span>
+                                                            <span className='max-w-[170px] truncate font-black'>{shortStr}</span>
+                                                         </button>
+                                                      )
+                                                   }
+                                                   return (
+                                                      <button
+                                                         type='button'
+                                                         onClick={() => setIsSummaryModalOpen(true)}
+                                                         className='inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 hover:bg-emerald-200 text-emerald-800 border border-emerald-300 transition shadow-2xs cursor-pointer'
+                                                         title='Все сырье из техкарты в достаточном количестве есть на складе заморозки. Нажмите для открытия сводки'
+                                                      >
+                                                         <span>🟢</span>
+                                                         <span>Сырьё в наличии</span>
+                                                      </button>
+                                                   )
+                                                })()}
+                                             </div>
+                                          </div>
+                                       )}
                                     </div>
                                  </div>
                               </td>
 
                               {/* Категория */}
-                              <td className='px-2 py-3 text-slate-500 font-medium whitespace-nowrap'>
+                              <td className='px-3 py-3 text-slate-600 font-medium whitespace-nowrap'>
                                  {item.category || '—'}
                               </td>
 
@@ -2700,6 +3033,92 @@ export default function Checklist({
                         {content.description}
                      </p>
 
+                     {/* Наличие сырья на складе заморозки */}
+                     {(() => {
+                        const normName = hoveredTooltip.item.productName.trim().toLowerCase()
+                        const rawInfo = rawMaterialsSummary?.productRawMaterials?.[normName]
+                        const def = rawMaterialsSummary?.itemDeficits?.[hoveredTooltip.item.id]
+
+                        if (!rawInfo) return null
+
+                        return (
+                           <div className='mt-3 pt-2.5 border-t border-slate-700/80 bg-slate-800/60 -mx-4 px-4 py-2.5'>
+                              <div className='flex items-center justify-between text-xs mb-1.5'>
+                                 <span className='font-bold text-slate-200 flex items-center gap-1.5'>
+                                    <span>❄️</span>
+                                    <span>Склад заморозки:</span>
+                                 </span>
+                                 {rawInfo.hasTechCard ? (
+                                    rawInfo.rawMaterialsCount === 0 ? (
+                                       <span className='text-[10px] text-slate-400 italic bg-slate-700/50 px-2 py-0.5 rounded'>
+                                          Сырьё не привязано
+                                       </span>
+                                    ) : rawInfo.allAvailable ? (
+                                       <span className='text-[10px] font-extrabold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20'>
+                                          🟢 Сырьё в наличии
+                                       </span>
+                                    ) : (
+                                       <span className='text-[10px] font-extrabold text-rose-400 bg-rose-500/10 px-2 py-0.5 rounded border border-rose-500/20'>
+                                          🔴 Дефицит сырья
+                                       </span>
+                                    )
+                                 ) : (
+                                    <span className='text-[10px] text-slate-400 italic bg-slate-700/50 px-2 py-0.5 rounded'>
+                                       ⚪ Без тех. карты
+                                    </span>
+                                 )}
+                              </div>
+
+                              {rawInfo.hasTechCard && rawInfo.rawMaterials.length > 0 ? (
+                                 <div className='space-y-1 mt-1.5'>
+                                    {rawInfo.rawMaterials.map((rm: any, idx: number) => (
+                                       <div
+                                          key={idx}
+                                          className='flex items-center justify-between text-[11px] bg-slate-900/60 px-2 py-1 rounded border border-slate-700/40'
+                                       >
+                                          <span className='text-slate-300 font-medium truncate max-w-[220px]'>
+                                             • {rm.name}
+                                          </span>
+                                          <div className='flex items-center gap-1.5 shrink-0 ml-2'>
+                                             <span
+                                                className={`font-black ${
+                                                   rm.inStock ? 'text-emerald-300' : 'text-rose-400'
+                                                }`}
+                                             >
+                                                {rm.availableKg} кг
+                                             </span>
+                                             {rm.inStock ? (
+                                                <span className='text-[10px] text-emerald-400 font-semibold'>
+                                                   в наличии
+                                                </span>
+                                             ) : (
+                                                <span className='text-[10px] text-rose-400 font-bold'>
+                                                   0 кг
+                                                </span>
+                                             )}
+                                          </div>
+                                       </div>
+                                    ))}
+                                 </div>
+                              ) : null}
+
+                              {/* Если позиция в плане и есть дефицит под конкретный замес */}
+                              {hoveredTooltip.item.isPlanned && def?.hasDeficit && (
+                                 <div className='mt-2 p-1.5 bg-rose-950/50 border border-rose-500/30 rounded text-[11px] text-rose-300 flex items-center gap-1.5'>
+                                    <span className='text-xs'>⚠️</span>
+                                    <span>
+                                       Не хватает на плановую партию (дефицит:{' '}
+                                       {(def.missingMaterials || [])
+                                          .map((m: any) => `${m.shortageKg} кг`)
+                                          .join(', ')}
+                                       )
+                                    </span>
+                                 </div>
+                              )}
+                           </div>
+                        )
+                     })()}
+
                      {/* Рекомендация */}
                      {content.recommendation && (
                         <div className='mt-3 pt-2.5 border-t border-slate-800 flex items-start gap-2 text-xs font-semibold text-emerald-300'>
@@ -2907,6 +3326,284 @@ export default function Checklist({
                productName={historyModalProductName}
                onClose={() => setHistoryModalProductName(null)}
             />
+         )}
+
+         {/* ═══ Модальное окно: Сводная потребность в сырье на неделю ═══ */}
+         {isSummaryModalOpen && (
+            <div
+               onClick={() => setIsSummaryModalOpen(false)}
+               className='fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-3 sm:p-5'
+            >
+               <div
+                  onClick={(e) => e.stopPropagation()}
+                  className='bg-white rounded-3xl overflow-hidden shadow-2xl border border-slate-200 max-w-4xl w-full max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95'
+               >
+                  {/* Шапка модалки */}
+                  <div className='p-5 sm:p-6 border-b border-slate-100 flex items-start justify-between gap-4 bg-slate-50/50'>
+                     <div className='space-y-1'>
+                        <div className='flex items-center gap-2'>
+                           <div className='w-9 h-9 rounded-2xl bg-sky-500 text-white flex items-center justify-center shadow-md shadow-sky-500/20'>
+                              <Snowflake className='w-5 h-5' />
+                           </div>
+                           <div>
+                              <h3 className='text-lg sm:text-xl font-black text-slate-900'>
+                                 Потребность в сырье на неделю №{weekNumber}
+                              </h3>
+                              <p className='text-xs text-slate-500'>
+                                 Сводный расчет расхода заморозки под все запланированные позиции
+                              </p>
+                           </div>
+                        </div>
+                        {rawMaterialsSummary?.latestFreezerDoc && (
+                           <div className='text-[11px] text-slate-500 flex items-center gap-1.5 pt-1'>
+                              <span className='font-bold text-slate-700'>Остатки заморозки:</span>
+                              <span className='px-2 py-0.5 rounded-md bg-white border border-slate-200 font-medium text-slate-800'>
+                                 📄 {rawMaterialsSummary.latestFreezerDoc.fileName}
+                              </span>
+                              <span className='text-slate-400'>
+                                 (всего на складе: {rawMaterialsSummary.latestFreezerDoc.totalWeight?.toLocaleString('ru-RU')} кг)
+                              </span>
+                           </div>
+                        )}
+                     </div>
+                     <button
+                        type='button'
+                        onClick={() => setIsSummaryModalOpen(false)}
+                        className='p-2 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition cursor-pointer shrink-0'
+                     >
+                        <X className='w-5 h-5' />
+                     </button>
+                  </div>
+
+                  {/* Карточки KPI */}
+                  <div className='grid grid-cols-2 sm:grid-cols-4 gap-3 p-4 sm:p-6 border-b border-slate-100 bg-white'>
+                     <div className='bg-slate-50 p-3 rounded-2xl border border-slate-200/60'>
+                        <div className='text-[10px] uppercase font-bold text-slate-400 tracking-wider'>
+                           Потребность
+                        </div>
+                        <div className='text-xl font-black text-slate-900 mt-0.5'>
+                           {rawMaterialsSummary?.totalRequiredKg?.toLocaleString('ru-RU') || 0} кг
+                        </div>
+                        <div className='text-[10px] text-slate-400 mt-0.5'>
+                           под {rawMaterialsSummary?.totalPlannedItems || 0} поз. плана
+                        </div>
+                     </div>
+
+                     <div className='bg-sky-50/60 p-3 rounded-2xl border border-sky-100'>
+                        <div className='text-[10px] uppercase font-bold text-sky-700 tracking-wider'>
+                           С тех. картами
+                        </div>
+                        <div className='text-xl font-black text-sky-900 mt-0.5'>
+                           {rawMaterialsSummary?.plannedWithTechCardsCount || 0} поз.
+                        </div>
+                        <div className='text-[10px] text-sky-600 mt-0.5'>
+                           привязаны к заморозке
+                        </div>
+                     </div>
+
+                     <div className={`p-3 rounded-2xl border ${
+                        rawMaterialsSummary?.deficitPositionsCount > 0
+                           ? 'bg-rose-50 border-rose-200'
+                           : 'bg-emerald-50 border-emerald-200'
+                     }`}>
+                        <div className={`text-[10px] uppercase font-bold tracking-wider ${
+                           rawMaterialsSummary?.deficitPositionsCount > 0 ? 'text-rose-700' : 'text-emerald-700'
+                        }`}>
+                           Дефицит
+                        </div>
+                        <div className={`text-xl font-black mt-0.5 ${
+                           rawMaterialsSummary?.deficitPositionsCount > 0 ? 'text-rose-900' : 'text-emerald-900'
+                        }`}>
+                           {rawMaterialsSummary?.deficitPositionsCount > 0 ? (
+                              <span>{rawMaterialsSummary.deficitPositionsCount} поз. ⚠️</span>
+                           ) : (
+                              <span>0 поз. ✅</span>
+                           )}
+                        </div>
+                        <div className={`text-[10px] mt-0.5 ${
+                           rawMaterialsSummary?.deficitPositionsCount > 0 ? 'text-rose-600' : 'text-emerald-600'
+                        }`}>
+                           {rawMaterialsSummary?.deficitPositionsCount > 0 ? 'требуется закупка' : 'сырьё 100% в наличии'}
+                        </div>
+                     </div>
+
+                     <div className='bg-amber-50/60 p-3 rounded-2xl border border-amber-200/60'>
+                        <div className='text-[10px] uppercase font-bold text-amber-800 tracking-wider'>
+                           Ориент. закупка
+                        </div>
+                        <div className='text-xl font-black text-amber-950 mt-0.5'>
+                           {rawMaterialsSummary?.totalDeficitCost?.toLocaleString('ru-RU') || 0} ₽
+                        </div>
+                        <div className='text-[10px] text-amber-700 mt-0.5'>
+                           по ценам склада
+                        </div>
+                     </div>
+                  </div>
+
+                  {/* Панель фильтров и действий */}
+                  <div className='px-5 py-3 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3 bg-slate-50/40'>
+                     <div className='flex items-center gap-1.5 flex-wrap'>
+                        <button
+                           type='button'
+                           onClick={() => setSummaryFilter('ALL')}
+                           className={`px-3 py-1 rounded-xl text-xs font-bold transition cursor-pointer ${
+                              summaryFilter === 'ALL'
+                                 ? 'bg-slate-800 text-white'
+                                 : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-100'
+                           }`}
+                        >
+                           Все ({rawMaterialsSummary?.summary?.length || 0})
+                        </button>
+                        <button
+                           type='button'
+                           onClick={() => setSummaryFilter('DEFICIT')}
+                           className={`px-3 py-1 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1 ${
+                              summaryFilter === 'DEFICIT'
+                                 ? 'bg-rose-600 text-white'
+                                 : 'bg-rose-50 border border-rose-200 text-rose-800 hover:bg-rose-100'
+                           }`}
+                        >
+                           <span>⚠️ Не хватает ({rawMaterialsSummary?.deficitPositionsCount || 0})</span>
+                        </button>
+                        <button
+                           type='button'
+                           onClick={() => setSummaryFilter('IN_STOCK')}
+                           className={`px-3 py-1 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1 ${
+                              summaryFilter === 'IN_STOCK'
+                                 ? 'bg-emerald-600 text-white'
+                                 : 'bg-emerald-50 border border-emerald-200 text-emerald-800 hover:bg-emerald-100'
+                           }`}
+                        >
+                           <span>🟢 В наличии ({((rawMaterialsSummary?.summary?.length || 0) - (rawMaterialsSummary?.deficitPositionsCount || 0))})</span>
+                        </button>
+                     </div>
+
+                     <div className='flex items-center gap-2'>
+                        <button
+                           type='button'
+                           onClick={handleCopyDeficitToClipboard}
+                           className='inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold transition cursor-pointer border border-slate-300'
+                           title='Скопировать текст списка дефицита для Telegram / WhatsApp'
+                        >
+                           <span>📋</span>
+                           <span>Скопировать дефицит</span>
+                        </button>
+                        <button
+                           type='button'
+                           onClick={handleExportCsv}
+                           className='inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-teal-50 hover:bg-teal-100 text-teal-800 text-xs font-bold transition cursor-pointer border border-teal-200'
+                           title='Выгрузить в Excel (CSV)'
+                        >
+                           <span>📥</span>
+                           <span>CSV</span>
+                        </button>
+                     </div>
+                  </div>
+
+                  {/* Таблица сводки */}
+                  <div className='overflow-y-auto flex-1 p-5'>
+                     {(!rawMaterialsSummary?.summary || rawMaterialsSummary.summary.length === 0) ? (
+                        <div className='py-12 text-center text-slate-400 space-y-2'>
+                           <div className='w-12 h-12 rounded-2xl bg-sky-50 text-sky-400 flex items-center justify-center mx-auto text-xl'>
+                              ❄️
+                           </div>
+                           <p className='font-bold text-slate-700 text-sm'>Нет позиций с привязанным сырьём</p>
+                           <p className='text-xs text-slate-500 max-w-sm mx-auto'>
+                              Включите в план недели позиции и добавьте в их тех. карты основное сырьё со склада заморозки
+                           </p>
+                        </div>
+                     ) : (
+                        <div className='rounded-2xl border border-slate-200 overflow-hidden shadow-2xs'>
+                           <table className='w-full text-left text-xs'>
+                              <thead className='bg-slate-50 text-slate-500 font-bold uppercase tracking-wider text-[10px] border-b border-slate-200'>
+                                 <tr>
+                                    <th className='py-3 px-3.5'>Сырьё (Заморозка)</th>
+                                    <th className='py-3 px-3 text-right whitespace-nowrap'>Нужно (кг)</th>
+                                    <th className='py-3 px-3 text-right whitespace-nowrap'>На складе (кг)</th>
+                                    <th className='py-3 px-3 text-right whitespace-nowrap'>Баланс / Нехватка</th>
+                                    <th className='py-3 px-3 text-right whitespace-nowrap'>Сумма закупки</th>
+                                    <th className='py-3 px-3.5'>Для какой продукции</th>
+                                 </tr>
+                              </thead>
+                              <tbody className='divide-y divide-slate-100 bg-white'>
+                                 {rawMaterialsSummary.summary
+                                    .filter((item: any) => {
+                                       if (summaryFilter === 'DEFICIT') return item.isDeficit
+                                       if (summaryFilter === 'IN_STOCK') return !item.isDeficit
+                                       return true
+                                    })
+                                    .map((item: any, idx: number) => (
+                                       <tr key={idx} className={`hover:bg-slate-50/70 transition ${item.isDeficit ? 'bg-rose-50/30' : ''}`}>
+                                          <td className='py-3 px-3.5'>
+                                             <div className='font-extrabold text-slate-900'>{item.productName}</div>
+                                             {item.pricePerKg > 0 && (
+                                                <div className='text-[10px] text-slate-400'>
+                                                   Себестоимость: {item.pricePerKg.toLocaleString('ru-RU')} ₽/кг
+                                                </div>
+                                             )}
+                                          </td>
+                                          <td className='py-3 px-3 text-right font-black text-slate-900 whitespace-nowrap'>
+                                             {item.requiredKg} кг
+                                          </td>
+                                          <td className='py-3 px-3 text-right font-bold text-slate-700 whitespace-nowrap'>
+                                             {item.availableKg} кг
+                                          </td>
+                                          <td className='py-3 px-3 text-right whitespace-nowrap'>
+                                             {item.isDeficit ? (
+                                                <span className='inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-black bg-rose-100 text-rose-800 border border-rose-300 shadow-2xs'>
+                                                   <span>⚠️ -{item.deficitKg} кг</span>
+                                                </span>
+                                             ) : (
+                                                <span className='inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300'>
+                                                   <span>+{item.deltaKg} кг</span>
+                                                </span>
+                                             )}
+                                          </td>
+                                          <td className='py-3 px-3 text-right font-extrabold whitespace-nowrap'>
+                                             {item.isDeficit && item.deficitCost > 0 ? (
+                                                <span className='text-rose-700 font-black'>
+                                                   ~{item.deficitCost.toLocaleString('ru-RU')} ₽
+                                                </span>
+                                             ) : (
+                                                <span className='text-slate-400 font-normal'>—</span>
+                                             )}
+                                          </td>
+                                          <td className='py-3 px-3.5'>
+                                             <div className='flex flex-wrap gap-1'>
+                                                {(item.products || []).map((p: any, pIdx: number) => (
+                                                   <span
+                                                      key={pIdx}
+                                                      className='inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-100 border border-slate-200 text-slate-700 font-medium text-[11px]'
+                                                   >
+                                                      <span>{p.productName}</span>
+                                                      <span className='font-bold text-teal-700'>({p.neededKg} кг)</span>
+                                                   </span>
+                                                ))}
+                                             </div>
+                                          </td>
+                                       </tr>
+                                    ))}
+                              </tbody>
+                           </table>
+                        </div>
+                     )}
+                  </div>
+
+                  {/* Подвал модалки */}
+                  <div className='p-4 border-t border-slate-100 bg-slate-50 flex items-center justify-between'>
+                     <div className='text-xs text-slate-400'>
+                        Расчет обновляется автоматически при изменении состава плана или планового веса
+                     </div>
+                     <button
+                        type='button'
+                        onClick={() => setIsSummaryModalOpen(false)}
+                        className='px-5 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-bold transition cursor-pointer'
+                     >
+                        Закрыть
+                     </button>
+                  </div>
+               </div>
+            </div>
          )}
       </div>
    )
