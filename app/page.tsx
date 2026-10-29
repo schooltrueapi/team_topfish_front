@@ -55,7 +55,16 @@ export default function DashboardPage() {
 
    // Главные вкладки страницы: Основной план vs Вторые новинки vs База обзвона vs Анализ финансов vs Тех. карты vs Аналитика склада
    const [activeTab, setActiveTab] = useState<
-      'main_plan' | 'trial_novelties' | 'clients' | 'finance' | 'tech_cards' | 'stock_analytics' | 'monthly_plan' | 'inventory' | 'freezer' | 'price_tags'
+      | 'main_plan'
+      | 'trial_novelties'
+      | 'clients'
+      | 'finance'
+      | 'tech_cards'
+      | 'stock_analytics'
+      | 'monthly_plan'
+      | 'inventory'
+      | 'freezer'
+      | 'price_tags'
    >('main_plan')
    const [clientsCount, setClientsCount] = useState<number>(0)
    const [trialStats, setTrialStats] = useState({
@@ -600,13 +609,18 @@ export default function DashboardPage() {
                      </div>
                      <div>
                         <div className='font-bold text-amber-950 text-sm flex items-center gap-2'>
-                           <span>Итоги недели №{reviewWeek.weekNumber} ({reviewWeek.year}) не подведены</span>
+                           <span>
+                              Итоги недели №{reviewWeek.weekNumber} (
+                              {reviewWeek.year}) не подведены
+                           </span>
                            <span className='px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-200 text-amber-900'>
                               Чеклист отложен
                            </span>
                         </div>
                         <p className='text-amber-800 text-xs mt-0.5'>
-                           Вы можете продолжить работу с планом, но перед началом полноценного цикла контроля рекомендуется зафиксировать результаты прошлой недели.
+                           Вы можете продолжить работу с планом, но перед
+                           началом полноценного цикла контроля рекомендуется
+                           зафиксировать результаты прошлой недели.
                         </p>
                      </div>
                   </div>
@@ -747,120 +761,120 @@ export default function DashboardPage() {
                      </span>
                   </button>
 
-                   {/* Вкладка «Аналитика склада» */}
-                   <button
-                      type='button'
-                      onClick={() => setActiveTab('stock_analytics')}
-                      className={`px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all flex items-center gap-2 cursor-pointer ${
-                         activeTab === 'stock_analytics'
-                            ? 'bg-gradient-to-r from-cyan-600 via-sky-800 to-indigo-950 text-white shadow-md shadow-slate-900/25 ring-1 ring-cyan-500/50'
-                            : 'bg-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-                      }`}
-                   >
-                      <BarChart3 className='w-4 h-4 text-cyan-300' />
-                      <span>Аналитика склада</span>
-                      <span
-                         className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                            activeTab === 'stock_analytics'
-                               ? 'bg-white/20 text-white'
-                               : 'bg-cyan-50 text-cyan-700'
-                         }`}
-                      >
-                         История
-                      </span>
-                   </button>
+                  {/* Вкладка «Аналитика склада» */}
+                  <button
+                     type='button'
+                     onClick={() => setActiveTab('stock_analytics')}
+                     className={`px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all flex items-center gap-2 cursor-pointer ${
+                        activeTab === 'stock_analytics'
+                           ? 'bg-gradient-to-r from-cyan-600 via-sky-800 to-indigo-950 text-white shadow-md shadow-slate-900/25 ring-1 ring-cyan-500/50'
+                           : 'bg-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                     }`}
+                  >
+                     <BarChart3 className='w-4 h-4 text-cyan-300' />
+                     <span>Аналитика склада</span>
+                     <span
+                        className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                           activeTab === 'stock_analytics'
+                              ? 'bg-white/20 text-white'
+                              : 'bg-cyan-50 text-cyan-700'
+                        }`}
+                     >
+                        История
+                     </span>
+                  </button>
 
-                   {/* Вкладка «Месячный план & Контроль перебора» */}
-                   <button
-                      type='button'
-                      onClick={() => setActiveTab('monthly_plan')}
-                      className={`px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all flex items-center gap-2 cursor-pointer ${
-                         activeTab === 'monthly_plan'
-                            ? 'bg-gradient-to-r from-emerald-600 via-teal-700 to-slate-900 text-white shadow-md shadow-emerald-600/25 ring-1 ring-emerald-500/50'
-                            : 'bg-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-                      }`}
-                   >
-                      <CalendarDays className='w-4 h-4 text-emerald-300' />
-                      <span>Месячный план</span>
-                      <span
-                         className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                            activeTab === 'monthly_plan'
-                               ? 'bg-white/20 text-white'
-                               : 'bg-emerald-50 text-emerald-700'
-                         }`}
-                      >
-                         Лимиты & Спрос
-                      </span>
-                   </button>
+                  {/* Вкладка «Месячный план & Контроль перебора» */}
+                  <button
+                     type='button'
+                     onClick={() => setActiveTab('monthly_plan')}
+                     className={`px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all flex items-center gap-2 cursor-pointer ${
+                        activeTab === 'monthly_plan'
+                           ? 'bg-gradient-to-r from-emerald-600 via-teal-700 to-slate-900 text-white shadow-md shadow-emerald-600/25 ring-1 ring-emerald-500/50'
+                           : 'bg-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                     }`}
+                  >
+                     <CalendarDays className='w-4 h-4 text-emerald-300' />
+                     <span>Месячный план</span>
+                     <span
+                        className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                           activeTab === 'monthly_plan'
+                              ? 'bg-white/20 text-white'
+                              : 'bg-emerald-50 text-emerald-700'
+                        }`}
+                     >
+                        Лимиты & Спрос
+                     </span>
+                  </button>
 
-                   {/* Вкладка «Инвентаризация запасов» */}
-                   <button
-                      type='button'
-                      onClick={() => setActiveTab('inventory')}
-                      className={`px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all flex items-center gap-2 cursor-pointer ${
-                         activeTab === 'inventory'
-                            ? 'bg-gradient-to-r from-teal-700 via-indigo-900 to-slate-900 text-white shadow-md shadow-indigo-950/25 ring-1 ring-teal-500/50'
-                            : 'bg-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-                      }`}
-                   >
-                      <ClipboardCheck className='w-4 h-4 text-teal-300' />
-                      <span>Инвентаризация</span>
-                      <span
-                         className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                            activeTab === 'inventory'
-                               ? 'bg-white/20 text-white'
-                               : 'bg-indigo-50 text-indigo-700'
-                         }`}
-                      >
-                         Сверка
-                      </span>
-                   </button>
+                  {/* Вкладка «Инвентаризация запасов» */}
+                  <button
+                     type='button'
+                     onClick={() => setActiveTab('inventory')}
+                     className={`px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all flex items-center gap-2 cursor-pointer ${
+                        activeTab === 'inventory'
+                           ? 'bg-gradient-to-r from-teal-700 via-indigo-900 to-slate-900 text-white shadow-md shadow-indigo-950/25 ring-1 ring-teal-500/50'
+                           : 'bg-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                     }`}
+                  >
+                     <ClipboardCheck className='w-4 h-4 text-teal-300' />
+                     <span>Инвентаризация</span>
+                     <span
+                        className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                           activeTab === 'inventory'
+                              ? 'bg-white/20 text-white'
+                              : 'bg-indigo-50 text-indigo-700'
+                        }`}
+                     >
+                        Сверка
+                     </span>
+                  </button>
 
-                   {/* Вкладка «Склад Заморозки» */}
-                   <button
-                      type='button'
-                      onClick={() => setActiveTab('freezer')}
-                      className={`px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all flex items-center gap-2 cursor-pointer ${
-                         activeTab === 'freezer'
-                            ? 'bg-gradient-to-r from-cyan-600 via-teal-700 to-slate-900 text-white shadow-md shadow-cyan-950/25 ring-1 ring-cyan-500/50'
-                            : 'bg-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-                      }`}
-                   >
-                      <Snowflake className='w-4 h-4 text-cyan-300' />
-                      <span>Заморозка</span>
-                      <span
-                         className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                            activeTab === 'freezer'
-                               ? 'bg-white/20 text-white'
-                               : 'bg-cyan-50 text-cyan-700'
-                         }`}
-                      >
-                         Сырьё
-                      </span>
-                   </button>
+                  {/* Вкладка «Склад Заморозки» */}
+                  <button
+                     type='button'
+                     onClick={() => setActiveTab('freezer')}
+                     className={`px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all flex items-center gap-2 cursor-pointer ${
+                        activeTab === 'freezer'
+                           ? 'bg-gradient-to-r from-cyan-600 via-teal-700 to-slate-900 text-white shadow-md shadow-cyan-950/25 ring-1 ring-cyan-500/50'
+                           : 'bg-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                     }`}
+                  >
+                     <Snowflake className='w-4 h-4 text-cyan-300' />
+                     <span>Заморозка</span>
+                     <span
+                        className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                           activeTab === 'freezer'
+                              ? 'bg-white/20 text-white'
+                              : 'bg-cyan-50 text-cyan-700'
+                        }`}
+                     >
+                        Сырьё
+                     </span>
+                  </button>
 
-                   {/* Вкладка «Генератор ценников» */}
-                   <button
-                      type='button'
-                      onClick={() => setActiveTab('price_tags')}
-                      className={`px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all flex items-center gap-2 cursor-pointer ${
-                         activeTab === 'price_tags'
-                            ? 'bg-gradient-to-r from-teal-600 via-cyan-600 to-indigo-700 text-white shadow-md shadow-teal-900/25 ring-1 ring-cyan-500/50'
-                            : 'bg-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-                      }`}
-                   >
-                      <Tag className='w-4 h-4 text-cyan-300' />
-                      <span>Ценники</span>
-                      <span
-                         className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                            activeTab === 'price_tags'
-                               ? 'bg-white/20 text-white'
-                               : 'bg-cyan-50 text-cyan-700'
-                         }`}
-                      >
-                         Генератор
-                      </span>
-                   </button>
+                  {/* Вкладка «Генератор ценников» */}
+                  <button
+                     type='button'
+                     onClick={() => setActiveTab('price_tags')}
+                     className={`px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all flex items-center gap-2 cursor-pointer ${
+                        activeTab === 'price_tags'
+                           ? 'bg-gradient-to-r from-teal-600 via-cyan-600 to-indigo-700 text-white shadow-md shadow-teal-900/25 ring-1 ring-cyan-500/50'
+                           : 'bg-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                     }`}
+                  >
+                     <Tag className='w-4 h-4 text-cyan-300' />
+                     <span>Ценники</span>
+                     <span
+                        className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                           activeTab === 'price_tags'
+                              ? 'bg-white/20 text-white'
+                              : 'bg-cyan-50 text-cyan-700'
+                        }`}
+                     >
+                        Генератор
+                     </span>
+                  </button>
                </div>
 
                {/* Быстрая подсказка / статус */}
@@ -876,14 +890,25 @@ export default function DashboardPage() {
                            : activeTab === 'stock_analytics'
                              ? 'История остатков по загрузкам • Все загруженные файлы'
                              : activeTab === 'monthly_plan'
-                              ? 'Месячный план производства • Контроль перебора и утилизации'
-                              : activeTab === 'inventory'
-                                ? 'Сверка склада 1С • Недостачи, излишки и отклонения'
-                                : activeTab === 'price_tags'
-                                     ? 'Генератор ценников • Фирменные карточки ТопФиш (Х/К, Г/К, С/С, ВЯЛ)'
-                                     : 'База клиентов и контрагентов • Обзвон и контакты'}
+                               ? 'Месячный план производства • Контроль перебора и утилизации'
+                               : activeTab === 'inventory'
+                                 ? 'Сверка склада 1С • Недостачи, излишки и отклонения'
+                                 : activeTab === 'price_tags'
+                                   ? 'Генератор ценников • Фирменные карточки ТопФиш (Х/К, Г/К, С/С, ВЯЛ)'
+                                   : 'База клиентов и контрагентов • Обзвон и контакты'}
                </div>
             </div>
+
+            {/* База клиентов (обзвон) - монтируем постоянно в фоне, чтобы работа не сбрасывалась при переходе между вкладками */}
+            {hasPermission('MANAGE_CLIENTS') && (
+               <div className={activeTab === 'clients' ? 'block' : 'hidden'}>
+                  <ClientsCallingTab
+                     onCountChange={setClientsCount}
+                     isGlobalTabActive={activeTab === 'clients'}
+                     onRequestSwitchToCallingTab={() => setActiveTab('clients')}
+                  />
+               </div>
+            )}
 
             {/* Контент активной вкладки */}
             {activeTab === 'price_tags' ? (
@@ -896,8 +921,8 @@ export default function DashboardPage() {
                <MonthlyPlanTab />
             ) : activeTab === 'finance' && hasPermission('FULL_ACCESS') ? (
                <FinancialAnalysisTab currentWeek={displayWeek} />
-            ) : activeTab === 'clients' && hasPermission('MANAGE_CLIENTS') ? (
-               <ClientsCallingTab onCountChange={setClientsCount} />
+            ) : activeTab === 'clients' ? (
+               null
             ) : activeTab === 'trial_novelties' ? (
                <TrialNoveltiesTab
                   currentWeek={displayWeek}
