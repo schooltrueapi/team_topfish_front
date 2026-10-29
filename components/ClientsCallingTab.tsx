@@ -54,6 +54,7 @@ import {
    ExternalLink,
    Clock,
    Flame,
+   Layers,
 } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 
@@ -330,7 +331,14 @@ export default function ClientsCallingTab({
    isGlobalTabActive = true,
    onRequestSwitchToCallingTab,
 }: ClientsCallingTabProps) {
-   const { user } = useAuth()
+   const { user, hasPermission } = useAuth()
+
+   const canDeleteCallResults =
+      Boolean(hasPermission && hasPermission('FULL_ACCESS')) ||
+      user?.role === 'Администратор' ||
+      user?.role === 'Руководитель' ||
+      user?.role === 'admin' ||
+      Boolean(user?.permissions?.includes('FULL_ACCESS'))
 
    const [clients, setClients] = useState<Client[]>([])
    const [cities, setCities] = useState<string[]>([])
@@ -455,13 +463,15 @@ export default function ClientsCallingTab({
    const [isDockCollapsed, setIsDockCollapsed] = useState(false)
    const [isDockVisible, setIsDockVisible] = useState(true)
 
-   // Панель контроля руководителя (Антифрод & Метрики дня)
+   // Панель контроля руководителя (Метрики дня & Работы)
    const [dailyStats, setDailyStats] = useState<any>(null)
    const [selectedDailyDate, setSelectedDailyDate] = useState<string>(
       new Date().toISOString().slice(0, 10)
    )
    const [selectedDailyOperator, setSelectedDailyOperator] = useState<string>('ALL')
    const [isDailyStatsLoading, setIsDailyStatsLoading] = useState(false)
+   const [supervisorSubTab, setSupervisorSubTab] = useState<'works' | 'timeline'>('works')
+   const [expandedSessionIds, setExpandedSessionIds] = useState<Set<string>>(new Set())
 
    // Режим работы «Начать работу» (Обзвон по городам)
    const [isCallingSessionActive, setIsCallingSessionActive] = useState(false)
@@ -620,6 +630,126 @@ export default function ClientsCallingTab({
          toast.error('Не удалось загрузить метрики дня')
       } finally {
          setIsDailyStatsLoading(false)
+      }
+   }
+
+   // Скомпонованный список сессий (Работ) за выбранный день
+   const displaySessions = React.useMemo(() => {
+      if (dailyStats?.sessions && Array.isArray(dailyStats.sessions)) {
+         return dailyStats.sessions
+      }
+      const timeline = dailyStats?.timeline || []
+      const sorted = [...timeline].reverse()
+      const works: any[] = []
+      let cur: any = null
+      for (const log of sorted) {
+         const logTime = new Date(log.calledAt).getTime()
+         const isSameOp = cur && cur.operatorName === log.operatorName
+         const isSameCity = cur && cur.city === log.city
+         const lastTime = cur ? new Date(cur.calls[cur.calls.length - 1].calledAt).getTime() : 0
+         const gapMins = cur ? Math.round((logTime - lastTime) / 60000) : 0
+         if (cur && isSameOp && isSameCity && gapMins <= 45) {
+            cur.calls.push(log)
+            cur.endedAt = log.calledAt
+            cur.totalCalls += 1
+            if (log.action === 'ORDER_PLACED') cur.orders += 1
+            else if (log.action === 'CALLBACK') cur.callbacks += 1
+            else if (log.action === 'NO_ANSWER') cur.noAnswer += 1
+            else cur.other += 1
+         } else {
+            cur = {
+               id: `work_${log.id}_${logTime}`,
+               operatorName: log.operatorName,
+               operatorRole: log.operatorRole || 'Оператор',
+               city: log.city,
+               startedAt: log.calledAt,
+               endedAt: log.calledAt,
+               totalCalls: 1,
+               orders: log.action === 'ORDER_PLACED' ? 1 : 0,
+               callbacks: log.action === 'CALLBACK' ? 1 : 0,
+               noAnswer: log.action === 'NO_ANSWER' ? 1 : 0,
+               other: !['ORDER_PLACED', 'CALLBACK', 'NO_ANSWER'].includes(log.action) ? 1 : 0,
+               calls: [log],
+            }
+            works.push(cur)
+         }
+      }
+      return works
+         .map((w, idx) => {
+            const s = new Date(w.startedAt).getTime()
+            const e = new Date(w.endedAt).getTime()
+            return {
+               ...w,
+               workNumber: idx + 1,
+               durationMinutes: Math.max(1, Math.round((e - s) / 60000)),
+               calls: w.calls.slice().reverse(),
+            }
+         })
+         .reverse()
+   }, [dailyStats])
+
+   const toggleSessionExpanded = (sessionId: string) => {
+      setExpandedSessionIds((prev) => {
+         const next = new Set(prev)
+         if (next.has(sessionId)) {
+            next.delete(sessionId)
+         } else {
+            next.add(sessionId)
+         }
+         return next
+      })
+   }
+
+   const expandAllSessions = () => {
+      setExpandedSessionIds(new Set(displaySessions.map((s: any) => s.id)))
+   }
+
+   const collapseAllSessions = () => {
+      setExpandedSessionIds(new Set())
+   }
+
+   const handleDeleteSingleCall = async (callId: string, clientName: string) => {
+      if (!canDeleteCallResults) {
+         toast.error('Удалять итоги обзвона может только Администратор')
+         return
+      }
+      if (!window.confirm(`Вы уверены, что хотите удалить результат звонка по клиенту «${clientName}»?`)) {
+         return
+      }
+      try {
+         await api.delete(`/api/clients/calls/${callId}`)
+         toast.success(`Итог звонка «${clientName}» успешно удален`)
+         await fetchDailyStats()
+         await fetchClients(true)
+      } catch (err: any) {
+         console.error('Ошибка удаления звонка:', err)
+         toast.error(err.response?.data?.error || 'Не удалось удалить результат звонка')
+      }
+   }
+
+   const handleDeleteWorkSession = async (sess: any) => {
+      if (!canDeleteCallResults) {
+         toast.error('Удалять итоги обзвона может только Администратор')
+         return
+      }
+      const callIds = sess.calls?.map((c: any) => c.id) || []
+      if (callIds.length === 0) return
+
+      if (
+         !window.confirm(
+            `Вы уверены, что хотите удалить всю Работу №${sess.workNumber} (г. ${sess.city}, ${sess.totalCalls} звонков)?\n\nВсе результаты звонков этой работы будут безвозвратно удалены из базы.`
+         )
+      ) {
+         return
+      }
+      try {
+         await api.post('/api/clients/calls/batch-delete', { callIds })
+         toast.success(`Работа №${sess.workNumber} (${sess.city}) успешно удалена`)
+         await fetchDailyStats()
+         await fetchClients(true)
+      } catch (err: any) {
+         console.error('Ошибка удаления работы:', err)
+         toast.error(err.response?.data?.error || 'Не удалось удалить работу')
       }
    }
 
@@ -1700,7 +1830,7 @@ export default function ClientsCallingTab({
                   }`}
                >
                   <BarChart3 className='w-4 h-4' />
-                  <span>Контроль дня & Антифрод</span>
+                  <span>Контроль обзвона</span>
                </button>
             </div>
 
@@ -3650,10 +3780,10 @@ export default function ClientsCallingTab({
                      <div>
                         <h2 className='text-lg font-black text-slate-900 flex items-center gap-2'>
                            <BarChart3 className='w-5 h-5 text-indigo-600' />
-                           <span>Контроль обзвона & Антифрод</span>
+                           <span>Контроль обзвона</span>
                         </h2>
                         <p className='text-xs text-slate-500'>
-                           Проверка выполнения дневного плана, хронологии звонков и детекция простоев
+                           Проверка выполнения дневного плана, сессий обзвона по городам и хронологии звонков
                         </p>
                      </div>
                   </div>
@@ -3769,163 +3899,371 @@ export default function ClientsCallingTab({
                   </div>
                </div>
 
-               {/* АНТИФРОД: ДЕТЕКЦИЯ ПРОСТОЕВ (> 45 МИНУТ) */}
-               <div className='bg-white rounded-3xl border border-slate-200 p-5 shadow-sm space-y-3'>
-                  <div className='flex items-center justify-between'>
+               {/* ЖУРНАЛ СЕССИЙ (РАБОТ) И ЗВОНКОВ */}
+               <div className='space-y-4'>
+                  {/* Переключатель вида: «По работам» или «Все звонки подряд» */}
+                  <div className='flex items-center justify-between flex-wrap gap-3 px-1'>
                      <div className='flex items-center gap-2'>
-                        <ShieldCheck className='w-5 h-5 text-indigo-600' />
-                        <h3 className='font-black text-sm text-slate-900 uppercase tracking-wider'>
-                           Антифрод-мониторинг пауз и простоев
-                        </h3>
+                        <div className='bg-slate-200/80 p-1 rounded-2xl flex items-center gap-1'>
+                           <button
+                              type='button'
+                              onClick={() => setSupervisorSubTab('works')}
+                              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                                 supervisorSubTab === 'works'
+                                    ? 'bg-white text-indigo-700 shadow-xs'
+                                    : 'text-slate-600 hover:text-slate-900'
+                              }`}
+                           >
+                              <Layers className='w-3.5 h-3.5' />
+                              <span>По работам ({displaySessions.length})</span>
+                           </button>
+
+                           <button
+                              type='button'
+                              onClick={() => setSupervisorSubTab('timeline')}
+                              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                                 supervisorSubTab === 'timeline'
+                                    ? 'bg-white text-indigo-700 shadow-xs'
+                                    : 'text-slate-600 hover:text-slate-900'
+                              }`}
+                           >
+                              <History className='w-3.5 h-3.5' />
+                              <span>Все звонки ({dailyStats?.timeline?.length || 0})</span>
+                           </button>
+                        </div>
                      </div>
-                     <span className='text-xs text-slate-400'>
-                        Порог подозрительного простоя: &gt; 45 минут
-                     </span>
+
+                     {supervisorSubTab === 'works' && displaySessions.length > 0 && (
+                        <div className='flex items-center gap-2'>
+                           <button
+                              type='button'
+                              onClick={expandAllSessions}
+                              className='px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition cursor-pointer'
+                           >
+                              Развернуть все
+                           </button>
+                           <button
+                              type='button'
+                              onClick={collapseAllSessions}
+                              className='px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition cursor-pointer'
+                           >
+                              Свернуть все
+                           </button>
+                        </div>
+                     )}
                   </div>
 
-                  {dailyStats?.idleIncidents && dailyStats.idleIncidents.length > 0 ? (
-                     <div className='space-y-2.5'>
-                        <div className='p-3.5 rounded-2xl bg-amber-50 border border-amber-300 text-amber-950 flex items-center gap-2 text-xs font-bold'>
-                           <AlertTriangle className='w-4 h-4 text-amber-600 shrink-0' />
-                           <span>
-                              Зафиксировано {dailyStats.idleIncidents.length} подозрительных пауз между звонками:
-                           </span>
-                        </div>
-
-                        <div className='grid grid-cols-1 md:grid-cols-2 gap-2.5'>
-                           {dailyStats.idleIncidents.map((incident: any, iIdx: number) => (
-                              <div
-                                 key={iIdx}
-                                 className='p-3.5 rounded-2xl bg-slate-50 border border-slate-200 flex items-start gap-3'
-                              >
-                                 <div className='w-8 h-8 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center shrink-0 font-black text-xs'>
-                                    {incident.durationMinutes}м
-                                 </div>
-                                 <div className='text-xs space-y-0.5'>
-                                    <div className='font-bold text-slate-900'>
-                                       Оператор: {incident.operatorName}
-                                    </div>
-                                    <div className='text-slate-500'>
-                                       Пауза {incident.durationMinutes} минут: с{' '}
-                                       <strong>
-                                          {new Date(incident.fromTime).toLocaleTimeString([], {
-                                             hour: '2-digit',
-                                             minute: '2-digit',
-                                          })}
-                                       </strong>{' '}
-                                       до{' '}
-                                       <strong>
-                                          {new Date(incident.toTime).toLocaleTimeString([], {
-                                             hour: '2-digit',
-                                             minute: '2-digit',
-                                          })}
-                                       </strong>
-                                    </div>
-                                    <div className='text-[11px] text-slate-400 italic truncate'>
-                                       {incident.prevClient} → {incident.nextClient}
-                                    </div>
-                                 </div>
+                  {/* 1. ВИД: СКОМПОНОВАНО ПО РАБОТАМ */}
+                  {supervisorSubTab === 'works' && (
+                     <div className='space-y-3.5'>
+                        {displaySessions.length === 0 ? (
+                           <div className='bg-white rounded-3xl border border-slate-200 p-12 text-center text-slate-400 shadow-xs'>
+                              <PhoneCall className='w-10 h-10 mx-auto text-slate-300 mb-3' />
+                              <div className='text-sm font-bold text-slate-700'>
+                                 За выбранную дату работ не зафиксировано
                               </div>
-                           ))}
-                        </div>
-                     </div>
-                  ) : (
-                     <div className='p-4 rounded-2xl bg-emerald-50/70 border border-emerald-200 text-emerald-900 flex items-center gap-2 text-xs font-bold'>
-                        <CheckCircle2 className='w-4 h-4 text-emerald-600 shrink-0' />
-                        <span>
-                           Подозрительных пауз (&gt; 45 мин) не обнаружено. Оператор работал ритмично.
-                        </span>
+                              <div className='text-xs text-slate-400 mt-1'>
+                                 Выберите другую дату или оператора в фильтрах сверху
+                              </div>
+                           </div>
+                        ) : (
+                           displaySessions.map((sess: any) => {
+                              const isExpanded = expandedSessionIds.has(sess.id);
+                              const startStr = new Date(sess.startedAt).toLocaleTimeString([], {
+                                 hour: '2-digit',
+                                 minute: '2-digit',
+                              });
+                              const endStr = new Date(sess.endedAt).toLocaleTimeString([], {
+                                 hour: '2-digit',
+                                 minute: '2-digit',
+                              });
+
+                              return (
+                                 <div
+                                    key={sess.id}
+                                    className='bg-white rounded-3xl border border-slate-200/90 shadow-xs overflow-hidden transition hover:border-slate-300'
+                                 >
+                                    {/* Шапка работы */}
+                                    <div
+                                       onClick={() => toggleSessionExpanded(sess.id)}
+                                       className='p-4 sm:p-5 flex flex-wrap items-center justify-between gap-3 cursor-pointer bg-gradient-to-r from-slate-50/60 to-white hover:bg-slate-50/90 transition select-none'
+                                    >
+                                       <div className='flex items-center gap-3.5 flex-wrap'>
+                                          <span className='px-3 py-1.5 rounded-xl bg-indigo-600 text-white font-black text-xs tracking-wide shadow-xs shadow-indigo-600/25'>
+                                             Работа №{sess.workNumber}
+                                          </span>
+
+                                          <div className='flex items-center gap-1.5'>
+                                             <MapPin className='w-4 h-4 text-slate-400' />
+                                             <span className='font-black text-sm text-slate-900'>
+                                                г. {sess.city}
+                                             </span>
+                                          </div>
+
+                                          <div className='flex items-center gap-1.5 text-xs text-slate-500 font-medium'>
+                                             <UserCheck className='w-3.5 h-3.5 text-slate-400' />
+                                             <span>{sess.operatorName}</span>
+                                          </div>
+
+                                          <div className='flex items-center gap-1 text-xs font-mono text-slate-500 bg-slate-100 px-2.5 py-1 rounded-lg'>
+                                             <Clock className='w-3 h-3 text-slate-400' />
+                                             <span>
+                                                {startStr} — {endStr}
+                                             </span>
+                                             <span className='text-[10px] text-slate-400 ml-1 font-sans'>
+                                                ({sess.durationMinutes} мин)
+                                             </span>
+                                          </div>
+                                       </div>
+
+                                       <div className='flex items-center gap-2 flex-wrap'>
+                                          {/* Статистика сессии */}
+                                          <div className='flex items-center gap-1.5 flex-wrap'>
+                                             <span className='px-2.5 py-1 rounded-lg bg-slate-100 text-slate-700 text-xs font-bold border border-slate-200'>
+                                                Всего: {sess.totalCalls}
+                                             </span>
+                                             {sess.orders > 0 && (
+                                                <span className='px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-800 text-xs font-bold border border-emerald-200'>
+                                                   Заявки: {sess.orders}
+                                                </span>
+                                             )}
+                                             {sess.callbacks > 0 && (
+                                                <span className='px-2.5 py-1 rounded-lg bg-amber-50 text-amber-800 text-xs font-bold border border-amber-200'>
+                                                   Перезвон: {sess.callbacks}
+                                                </span>
+                                             )}
+                                             {sess.noAnswer > 0 && (
+                                                <span className='px-2.5 py-1 rounded-lg bg-rose-50 text-rose-800 text-xs font-bold border border-rose-200'>
+                                                   Не ответили: {sess.noAnswer}
+                                                </span>
+                                             )}
+                                             {sess.other > 0 && (
+                                                <span className='px-2.5 py-1 rounded-lg bg-slate-100 text-slate-600 text-xs font-bold border border-slate-200'>
+                                                   Прочие: {sess.other}
+                                                </span>
+                                             )}
+                                          </div>
+
+                                          {/* Удаление всей работы (только Администратор) */}
+                                          {canDeleteCallResults && (
+                                             <button
+                                                type='button'
+                                                onClick={(e) => {
+                                                   e.stopPropagation();
+                                                   handleDeleteWorkSession(sess);
+                                                }}
+                                                className='p-2 rounded-xl text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer'
+                                                title='Удалить эту работу и все её звонки (только Администратор)'
+                                             >
+                                                <Trash2 className='w-4 h-4' />
+                                             </button>
+                                          )}
+
+                                          {/* Шеврон развернуть/свернуть */}
+                                          <div className='p-1 rounded-lg text-slate-400 hover:text-slate-600 transition'>
+                                             <ChevronDown
+                                                className={`w-5 h-5 transition-transform duration-200 ${
+                                                   isExpanded ? 'rotate-180 text-indigo-600' : ''
+                                                }`}
+                                             />
+                                          </div>
+                                       </div>
+                                    </div>
+
+                                    {/* Список клиентов внутри этой работы */}
+                                    {isExpanded && (
+                                       <div className='border-t border-slate-100 bg-white'>
+                                          <div className='overflow-x-auto'>
+                                             <table className='w-full text-left text-xs'>
+                                                <thead className='bg-slate-50/70 border-b border-slate-100 text-[10px] font-bold text-slate-400 uppercase tracking-wider'>
+                                                   <tr>
+                                                      <th className='py-3 px-4 w-28'>Время</th>
+                                                      <th className='py-3 px-4'>Клиент</th>
+                                                      <th className='py-3 px-4'>Результат</th>
+                                                      <th className='py-3 px-4'>Примечание / Перезвон</th>
+                                                      {canDeleteCallResults && (
+                                                         <th className='py-3 px-4 text-right w-16'>Действие</th>
+                                                      )}
+                                                   </tr>
+                                                </thead>
+                                                <tbody className='divide-y divide-slate-100'>
+                                                   {sess.calls.map((log: any) => {
+                                                      const cfg =
+                                                         CATEGORIES_CONFIG[log.action] || CATEGORIES_CONFIG.ON_DEMAND;
+
+                                                      return (
+                                                         <tr key={log.id} className='hover:bg-slate-50/60 transition'>
+                                                            <td className='py-3 px-4 font-mono font-bold text-slate-700 whitespace-nowrap'>
+                                                               {new Date(log.calledAt).toLocaleTimeString([], {
+                                                                  hour: '2-digit',
+                                                                  minute: '2-digit',
+                                                                  second: '2-digit',
+                                                               })}
+                                                            </td>
+                                                            <td className='py-3 px-4 font-bold text-slate-900'>
+                                                               {log.clientName}
+                                                            </td>
+                                                            <td className='py-3 px-4 whitespace-nowrap'>
+                                                               <span
+                                                                  className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border inline-flex items-center gap-1 ${cfg.badge}`}
+                                                               >
+                                                                  <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />
+                                                                  <span>{cfg.label}</span>
+                                                               </span>
+                                                            </td>
+                                                            <td className='py-3 px-4 text-slate-600 max-w-sm truncate'>
+                                                               {log.callbackAt ? (
+                                                                  <span className='font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200 inline-block'>
+                                                                     ⏰ На:{' '}
+                                                                     {new Date(log.callbackAt).toLocaleTimeString([], {
+                                                                        hour: '2-digit',
+                                                                        minute: '2-digit',
+                                                                     })}
+                                                                     {log.source === 'MEETING' ? ' (Вживую)' : ''}
+                                                                     {log.comment ? ` - ${log.comment}` : ''}
+                                                                  </span>
+                                                               ) : log.comment ? (
+                                                                  log.comment
+                                                               ) : (
+                                                                  <span className='text-slate-300'>—</span>
+                                                               )}
+                                                            </td>
+                                                            {canDeleteCallResults && (
+                                                               <td className='py-3 px-4 text-right'>
+                                                                  <button
+                                                                     type='button'
+                                                                     onClick={() =>
+                                                                        handleDeleteSingleCall(log.id, log.clientName)
+                                                                     }
+                                                                     className='p-1.5 rounded-lg text-slate-300 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer inline-flex items-center justify-center'
+                                                                     title='Удалить этот звонок (только Администратор)'
+                                                                  >
+                                                                     <Trash2 className='w-3.5 h-3.5' />
+                                                                  </button>
+                                                               </td>
+                                                            )}
+                                                         </tr>
+                                                      );
+                                                   })}
+                                                </tbody>
+                                             </table>
+                                          </div>
+                                       </div>
+                                    )}
+                                 </div>
+                              );
+                           })
+                        )}
                      </div>
                   )}
-               </div>
 
-               {/* Хронологический журнал звонков (Call Logs) */}
-               <div className='bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-sm'>
-                  <div className='p-4 sm:p-5 border-b border-slate-100 flex items-center justify-between'>
-                     <div className='flex items-center gap-2'>
-                        <History className='w-4 h-4 text-slate-500' />
-                        <h3 className='font-black text-xs text-slate-900 uppercase tracking-wider'>
-                           Хронология всех звонков за {selectedDailyDate} ({dailyStats?.timeline?.length || 0})
-                        </h3>
-                     </div>
-                  </div>
+                  {/* 2. ВИД: ХРОНОЛОГИЯ ВСЕХ ЗВОНКОВ */}
+                  {supervisorSubTab === 'timeline' && (
+                     <div className='bg-white rounded-3xl border border-slate-200 overflow-hidden shadow-xs'>
+                        <div className='p-4 sm:p-5 border-b border-slate-100 flex items-center justify-between'>
+                           <div className='flex items-center gap-2'>
+                              <History className='w-4 h-4 text-slate-500' />
+                              <h3 className='font-black text-xs text-slate-900 uppercase tracking-wider'>
+                                 Хронология всех звонков за {selectedDailyDate} ({dailyStats?.timeline?.length || 0})
+                              </h3>
+                           </div>
+                        </div>
 
-                  <div className='overflow-x-auto'>
-                     <table className='w-full text-left text-xs'>
-                        <thead className='bg-slate-50/80 border-b border-slate-200 text-[10px] font-bold text-slate-400 uppercase tracking-wider'>
-                           <tr>
-                              <th className='p-3.5'>Время</th>
-                              <th className='p-3.5'>Оператор</th>
-                              <th className='p-3.5'>Клиент</th>
-                              <th className='p-3.5'>Город</th>
-                              <th className='p-3.5'>Результат</th>
-                              <th className='p-3.5'>Примечание / Перезвон</th>
-                           </tr>
-                        </thead>
-                        <tbody className='divide-y divide-slate-100'>
-                           {dailyStats?.timeline && dailyStats.timeline.length > 0 ? (
-                              dailyStats.timeline.map((log: any) => {
-                                 const cfg = CATEGORIES_CONFIG[log.action] || CATEGORIES_CONFIG.ON_DEMAND;
+                        <div className='overflow-x-auto'>
+                           <table className='w-full text-left text-xs'>
+                              <thead className='bg-slate-50/80 border-b border-slate-200 text-[10px] font-bold text-slate-400 uppercase tracking-wider'>
+                                 <tr>
+                                    <th className='p-3.5 w-24'>Время</th>
+                                    <th className='p-3.5'>Оператор</th>
+                                    <th className='p-3.5'>Клиент</th>
+                                    <th className='p-3.5'>Город</th>
+                                    <th className='p-3.5'>Результат</th>
+                                    <th className='p-3.5'>Примечание / Перезвон</th>
+                                    {canDeleteCallResults && (
+                                       <th className='p-3.5 text-right w-16'>Действие</th>
+                                    )}
+                                 </tr>
+                              </thead>
+                              <tbody className='divide-y divide-slate-100'>
+                                 {dailyStats?.timeline && dailyStats.timeline.length > 0 ? (
+                                    dailyStats.timeline.map((log: any) => {
+                                       const cfg = CATEGORIES_CONFIG[log.action] || CATEGORIES_CONFIG.ON_DEMAND;
 
-                                 return (
-                                    <tr key={log.id} className='hover:bg-slate-50/80 transition'>
-                                       <td className='p-3.5 font-mono font-bold text-slate-700 whitespace-nowrap'>
-                                          {new Date(log.calledAt).toLocaleTimeString([], {
-                                             hour: '2-digit',
-                                             minute: '2-digit',
-                                             second: '2-digit',
-                                          })}
-                                       </td>
-                                       <td className='p-3.5 font-semibold text-slate-900 whitespace-nowrap'>
-                                          <div className='flex items-center gap-1.5'>
-                                             <UserCheck className='w-3.5 h-3.5 text-slate-400' />
-                                             <span>{log.operatorName}</span>
-                                          </div>
-                                       </td>
-                                       <td className='p-3.5 font-bold text-slate-900'>
-                                          {log.clientName}
-                                       </td>
-                                       <td className='p-3.5 text-slate-600 font-medium whitespace-nowrap'>
-                                          {log.city}
-                                       </td>
-                                       <td className='p-3.5 whitespace-nowrap'>
-                                          <span
-                                             className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border inline-flex items-center gap-1 ${cfg.badge}`}
-                                          >
-                                             <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />
-                                             <span>{cfg.label}</span>
-                                          </span>
-                                       </td>
-                                       <td className='p-3.5 text-slate-600 max-w-xs truncate'>
-                                          {log.callbackAt ? (
-                                             <span className='font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200 inline-block'>
-                                                ⏰ На:{' '}
-                                                {new Date(log.callbackAt).toLocaleTimeString([], {
+                                       return (
+                                          <tr key={log.id} className='hover:bg-slate-50/80 transition'>
+                                             <td className='p-3.5 font-mono font-bold text-slate-700 whitespace-nowrap'>
+                                                {new Date(log.calledAt).toLocaleTimeString([], {
                                                    hour: '2-digit',
                                                    minute: '2-digit',
-                                                })}{' '}
-                                                {log.source === 'MEETING' ? '(Вживую)' : ''}
-                                                {log.comment ? ` - ${log.comment}` : ''}
-                                             </span>
-                                          ) : log.comment ? (
-                                             log.comment
-                                          ) : (
-                                             <span className='text-slate-300'>—</span>
-                                          )}
+                                                   second: '2-digit',
+                                                })}
+                                             </td>
+                                             <td className='p-3.5 font-semibold text-slate-900 whitespace-nowrap'>
+                                                <div className='flex items-center gap-1.5'>
+                                                   <UserCheck className='w-3.5 h-3.5 text-slate-400' />
+                                                   <span>{log.operatorName}</span>
+                                                </div>
+                                             </td>
+                                             <td className='p-3.5 font-bold text-slate-900'>
+                                                {log.clientName}
+                                             </td>
+                                             <td className='p-3.5 text-slate-600 font-medium whitespace-nowrap'>
+                                                {log.city}
+                                             </td>
+                                             <td className='p-3.5 whitespace-nowrap'>
+                                                <span
+                                                   className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border inline-flex items-center gap-1 ${cfg.badge}`}
+                                                >
+                                                   <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />
+                                                   <span>{cfg.label}</span>
+                                                </span>
+                                             </td>
+                                             <td className='p-3.5 text-slate-600 max-w-xs truncate'>
+                                                {log.callbackAt ? (
+                                                   <span className='font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200 inline-block'>
+                                                      ⏰ На:{' '}
+                                                      {new Date(log.callbackAt).toLocaleTimeString([], {
+                                                         hour: '2-digit',
+                                                         minute: '2-digit',
+                                                      })}{' '}
+                                                      {log.source === 'MEETING' ? '(Вживую)' : ''}
+                                                      {log.comment ? ` - ${log.comment}` : ''}
+                                                   </span>
+                                                ) : log.comment ? (
+                                                   log.comment
+                                                ) : (
+                                                   <span className='text-slate-300'>—</span>
+                                                )}
+                                             </td>
+                                             {canDeleteCallResults && (
+                                                <td className='p-3.5 text-right'>
+                                                   <button
+                                                      type='button'
+                                                      onClick={() =>
+                                                         handleDeleteSingleCall(log.id, log.clientName)
+                                                      }
+                                                      className='p-1.5 rounded-lg text-slate-300 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer inline-flex items-center justify-center'
+                                                      title='Удалить этот звонок (только Администратор)'
+                                                   >
+                                                      <Trash2 className='w-3.5 h-3.5' />
+                                                   </button>
+                                                </td>
+                                             )}
+                                          </tr>
+                                       );
+                                    })
+                                 ) : (
+                                    <tr>
+                                       <td colSpan={canDeleteCallResults ? 7 : 6} className='p-8 text-center text-slate-400'>
+                                          Звонков за выбранную дату не зафиксировано
                                        </td>
                                     </tr>
-                                 );
-                              })
-                           ) : (
-                              <tr>
-                                 <td colSpan={6} className='p-8 text-center text-slate-400'>
-                                    Звонков за выбранную дату не зафиксировано
-                                 </td>
-                              </tr>
-                           )}
-                        </tbody>
-                     </table>
-                  </div>
+                                 )}
+                              </tbody>
+                           </table>
+                        </div>
+                     </div>
+                  )}
                </div>
             </div>
          )}
@@ -4948,210 +5286,6 @@ export default function ClientsCallingTab({
             </div>
          )}
 
-         {/* ПРИКРЕПЛЕННЫЙ СВОРАЧИВАЮЩИЙСЯ СПИСОК (Floating Docked Drawer) */}
-         {isCallingSessionActive && activeViewMode !== 'workspace' && (
-            <div className='fixed bottom-5 right-5 z-40 max-w-md w-full sm:w-[420px] drop-shadow-2xl animate-in slide-in-from-bottom-5 duration-200'>
-               {isDockCollapsed ? (
-                  /* Свернутое состояние (компактная плашка) */
-                  <div className='bg-slate-900/95 backdrop-blur-md text-white p-3 sm:p-3.5 rounded-2xl border border-slate-700/80 shadow-2xl flex items-center justify-between gap-3'>
-                     <div className='flex items-center gap-2.5 min-w-0'>
-                        <span className='flex h-2.5 w-2.5 relative shrink-0'>
-                           <span className='animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75'></span>
-                           <span className='relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500'></span>
-                        </span>
-                        <div className='min-w-0'>
-                           <div className='text-xs font-bold text-white truncate flex items-center gap-1.5'>
-                              <span>{sessionClients[currentCallIndex]?.name || `г. ${sessionCity}`}</span>
-                              <span className='text-[10px] text-teal-400 bg-teal-950/60 px-1.5 py-0.2 rounded font-mono'>
-                                 #{currentCallIndex + 1}/{sessionClients.length}
-                              </span>
-                           </div>
-                           {sessionClients[currentCallIndex]?.phones?.[0] && (
-                              <div className='text-[11px] font-mono text-slate-300 truncate'>
-                                 {sessionClients[currentCallIndex].phones[0]}
-                              </div>
-                           )}
-                        </div>
-                     </div>
-
-                     <div className='flex items-center gap-1.5 shrink-0'>
-                        {sessionClients[currentCallIndex]?.phones?.[0] && (
-                           <a
-                              href={`tel:${sessionClients[currentCallIndex].phones[0].replace(/[^\d+]/g, '')}`}
-                              className='p-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white transition'
-                              title='Быстрый звонок'
-                           >
-                              <PhoneCall className='w-4 h-4 fill-white' />
-                           </a>
-                        )}
-
-                        <button
-                           type='button'
-                           onClick={() => setIsDockCollapsed(false)}
-                           className='p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 transition cursor-pointer'
-                           title='Развернуть список'
-                        >
-                           <ChevronUp className='w-4 h-4' />
-                        </button>
-
-                        <button
-                           type='button'
-                           onClick={() => setActiveViewMode('workspace')}
-                           className='p-2 rounded-xl bg-teal-600 hover:bg-teal-500 text-white transition cursor-pointer'
-                           title='Провалиться в работу'
-                        >
-                           <Maximize2 className='w-4 h-4' />
-                        </button>
-                     </div>
-                  </div>
-               ) : (
-                  /* Развернутое состояние: интерактивный плавающий ящик (Drawer) */
-                  <div className='bg-white/95 backdrop-blur-md rounded-3xl border border-slate-200/90 shadow-2xl overflow-hidden flex flex-col max-h-[560px] animate-in zoom-in-95 duration-150'>
-                     {/* Шапка дока */}
-                     <div className='p-3.5 bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 text-white flex items-center justify-between gap-2 shrink-0'>
-                        <div className='flex items-center gap-2 min-w-0'>
-                           <span className='w-2 h-2 rounded-full bg-emerald-400 animate-pulse' />
-                           <span className='font-bold text-xs truncate text-white'>
-                              Обзвон: г. {sessionCity} ({currentCallIndex + 1}/{sessionClients.length})
-                           </span>
-                        </div>
-
-                        <div className='flex items-center gap-1 shrink-0'>
-                           <button
-                              type='button'
-                              onClick={() => setActiveViewMode('workspace')}
-                              className='px-2.5 py-1 rounded-lg bg-teal-600 hover:bg-teal-500 text-white text-[11px] font-bold transition flex items-center gap-1 cursor-pointer'
-                           >
-                              <Maximize2 className='w-3 h-3' />
-                              <span>Развернуть</span>
-                           </button>
-
-                           <button
-                              type='button'
-                              onClick={() => setIsDockCollapsed(true)}
-                              className='p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer'
-                              title='Свернуть'
-                           >
-                              <ChevronDown className='w-4 h-4' />
-                           </button>
-
-                           <button
-                              type='button'
-                              onClick={handleCloseSession}
-                              className='p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-slate-800 transition cursor-pointer'
-                              title='Завершить работу'
-                           >
-                              <X className='w-4 h-4' />
-                           </button>
-                        </div>
-                     </div>
-
-                     {/* Текущий клиент в доке */}
-                     {(() => {
-                        const cur = sessionClients[currentCallIndex];
-                        if (!cur) return null;
-
-                        return (
-                           <div className='p-3.5 bg-teal-50/70 border-b border-teal-100 space-y-2 shrink-0'>
-                              <div className='flex items-start justify-between gap-2'>
-                                 <div>
-                                    <div className='font-black text-sm text-slate-900 truncate'>
-                                       {cur.name}
-                                    </div>
-                                    <div className='text-[10px] text-slate-500 font-bold'>
-                                       {cur.city} • Клиент #{currentCallIndex + 1}
-                                    </div>
-                                 </div>
-
-                                 {cur.phones?.[0] && (
-                                    <a
-                                       href={`tel:${cur.phones[0].replace(/[^\d+]/g, '')}`}
-                                       className='px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs flex items-center gap-1 shadow-sm transition'
-                                    >
-                                       <PhoneCall className='w-3.5 h-3.5 fill-white' />
-                                       <span>{cur.phones[0]}</span>
-                                    </a>
-                                 )}
-                              </div>
-
-                              {/* Быстрые 4 кнопки фиксации */}
-                              <div className='grid grid-cols-4 gap-1.5 pt-1'>
-                                 <button
-                                    type='button'
-                                    onClick={() => handleCallAction('ORDER_PLACED')}
-                                    className='py-1.5 px-2 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-[11px] font-bold text-center transition cursor-pointer'
-                                    title='Сделала заявку'
-                                 >
-                                    🛒 Заявка
-                                 </button>
-                                 <button
-                                    type='button'
-                                    onClick={() => handleOpenCallbackModal(cur)}
-                                    className='py-1.5 px-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-[11px] font-bold text-center transition cursor-pointer'
-                                    title='Перезвонить'
-                                 >
-                                    ⏰ Перезвон
-                                 </button>
-                                 <button
-                                    type='button'
-                                    onClick={() => handleCallAction('NO_ANSWER')}
-                                    className='py-1.5 px-2 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-800 text-[11px] font-bold text-center transition cursor-pointer'
-                                    title='Не ответили'
-                                 >
-                                    📵 Сброс
-                                 </button>
-                                 <button
-                                    type='button'
-                                    onClick={advanceToNextClient}
-                                    className='py-1.5 px-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-bold text-center transition cursor-pointer'
-                                    title='Следующий'
-                                 >
-                                    ⏭️ След.
-                                 </button>
-                              </div>
-                           </div>
-                        );
-                     })()}
-
-                     {/* Список следующих клиентов очереди */}
-                     <div className='overflow-y-auto p-2 space-y-1 divide-y divide-slate-100 flex-1'>
-                        <div className='text-[10px] font-bold text-slate-400 uppercase tracking-wider px-2 py-1'>
-                           Далее по списку:
-                        </div>
-                        {sessionClients.map((c, idx) => {
-                           const isCur = idx === currentCallIndex;
-                           return (
-                              <div
-                                 key={c.id}
-                                 onClick={() => setCurrentCallIndex(idx)}
-                                 className={`p-2 rounded-xl flex items-center justify-between gap-2 text-xs transition cursor-pointer ${
-                                    isCur
-                                       ? 'bg-teal-50 border border-teal-300 font-bold'
-                                       : 'hover:bg-slate-50 text-slate-700'
-                                 }`}
-                              >
-                                 <div className='truncate flex items-center gap-1.5 min-w-0'>
-                                    <span className='text-[10px] opacity-60'>#{idx + 1}</span>
-                                    <span className='truncate'>{c.name}</span>
-                                 </div>
-                                 {c.phones?.[0] && (
-                                    <a
-                                       href={`tel:${c.phones[0].replace(/[^\d+]/g, '')}`}
-                                       onClick={(e) => e.stopPropagation()}
-                                       className='text-slate-400 hover:text-emerald-600 p-1 shrink-0'
-                                    >
-                                       <Phone className='w-3.5 h-3.5' />
-                                    </a>
-                                 )}
-                              </div>
-                           );
-                        })}
-                     </div>
-                  </div>
-               )}
-            </div>
-         )}
-
          {/* МОДАЛЬНОЕ ОКНО НАЗНАЧЕНИЯ ПЕРЕЗВОНА — ПОРТАЛ В document.body */}
          {isMounted && isCallbackModalOpen && callbackTargetClient && typeof document !== 'undefined' && createPortal(
             <div className='fixed inset-0 z-[10000] bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150'>
@@ -5307,198 +5441,305 @@ export default function ClientsCallingTab({
              </div>,
              document.body
           )}
-          {/* ПЛАВАЮЩИЙ ВИДЖЕТ ОБЗВОНА — СКВОЗНОЙ ДЛЯ ВСЕХ ВКЛАДОК (Портал в document.body) */}
+          {/* ЕДИНЫЙ СКВОЗНОЙ ПЛАВАЮЩИЙ ВИДЖЕТ ОБЗВОНА (Портал в document.body) */}
          {isMounted &&
             isCallingSessionActive &&
             (!isGlobalTabActive || activeViewMode !== 'workspace') &&
             typeof document !== 'undefined' &&
             createPortal(
-               <div className='fixed bottom-5 right-5 z-[9999] max-w-sm w-full bg-slate-900 text-white rounded-2xl shadow-2xl border border-teal-500/40 p-4 space-y-3 backdrop-blur-md animate-in slide-in-from-bottom-5 duration-200 select-none'>
-                  {/* Dock Header */}
-                  <div className='flex items-center justify-between gap-2 border-b border-slate-800 pb-2.5'>
-                     <div className='flex items-center gap-2 min-w-0'>
-                        <span className='w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping shrink-0'></span>
+               isDockCollapsed ? (
+                  /* Свернутый компактный вид */
+                  <div className='fixed bottom-5 right-5 z-[9999] max-w-sm w-full bg-slate-900/95 backdrop-blur-md text-white p-3 rounded-2xl border border-teal-500/40 shadow-2xl flex items-center justify-between gap-3 select-none animate-in slide-in-from-bottom-2 duration-200'>
+                     <div className='flex items-center gap-2.5 min-w-0'>
+                        <span className='flex h-2.5 w-2.5 relative shrink-0'>
+                           <span className='animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75'></span>
+                           <span className='relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500'></span>
+                        </span>
                         <div className='min-w-0'>
-                           <h4 className='text-xs font-black text-white truncate'>
-                              Обзвон: г. {sessionCity}
-                           </h4>
-                           <div className='text-[10px] text-teal-400 font-bold'>
-                              Клиент {currentCallIndex + 1} из {sessionClients.length} (
-                              {sessionClients.length > 0
-                                 ? Math.round(
-                                      (currentCallIndex / sessionClients.length) * 100
-                                   )
-                                 : 0}
-                              %)
+                           <div className='text-xs font-bold text-white truncate flex items-center gap-1.5'>
+                              <span>{sessionClients[currentCallIndex]?.name || `г. ${sessionCity}`}</span>
+                              <span className='text-[10px] text-teal-400 bg-teal-950/60 px-1.5 py-0.5 rounded font-mono'>
+                                 #{currentCallIndex + 1}/{sessionClients.length}
+                              </span>
                            </div>
+                           {sessionClients[currentCallIndex]?.phones?.[0] && (
+                              <div className='text-[11px] font-mono text-slate-300 truncate'>
+                                 {sessionClients[currentCallIndex].phones[0]}
+                              </div>
+                           )}
                         </div>
                      </div>
-                     <div className='flex items-center gap-1 shrink-0'>
+
+                     <div className='flex items-center gap-1.5 shrink-0'>
+                        {sessionClients[currentCallIndex]?.phones?.[0] && (
+                           <a
+                              href={`tel:${sessionClients[currentCallIndex].phones[0].replace(/[^\d+]/g, '')}`}
+                              className='p-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white transition'
+                              title='Позвонить'
+                           >
+                              <PhoneCall className='w-3.5 h-3.5 fill-white' />
+                           </a>
+                        )}
+
+                        <button
+                           type='button'
+                           onClick={() => setIsDockCollapsed(false)}
+                           className='p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 transition cursor-pointer'
+                           title='Развернуть карточку'
+                        >
+                           <ChevronUp className='w-4 h-4' />
+                        </button>
+
                         <button
                            type='button'
                            onClick={() => {
                               onRequestSwitchToCallingTab?.()
                               setActiveViewMode('workspace')
                            }}
-                           className='px-2.5 py-1 rounded-lg bg-teal-600 hover:bg-teal-500 text-white text-[11px] font-bold transition flex items-center gap-1 cursor-pointer shadow-xs'
-                           title='Развернуть рабочее место на весь экран'
+                           className='p-1.5 rounded-xl bg-teal-600 hover:bg-teal-500 text-white transition cursor-pointer'
+                           title='Развернуть рабочее место'
                         >
-                           <Maximize2 className='w-3 h-3' />
-                           <span>Развернуть</span>
-                        </button>
-                        <button
-                           type='button'
-                           onClick={() => {
-                              if (confirm('Завершить сессию обзвона?')) {
-                                 handleFinishAndExitSession()
-                              }
-                           }}
-                           className='p-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition cursor-pointer'
-                           title='Завершить обзвон'
-                        >
-                           <X className='w-3.5 h-3.5' />
+                           <Maximize2 className='w-4 h-4' />
                         </button>
                      </div>
                   </div>
+               ) : (
+                  /* Развернутый виджет обзвона */
+                  <div className='fixed bottom-5 right-5 z-[9999] w-[480px] max-w-[calc(100vw-1.5rem)] bg-slate-900 text-white rounded-2xl shadow-2xl border border-teal-500/40 p-4 space-y-3 backdrop-blur-md animate-in slide-in-from-bottom-5 duration-200 select-none'>
+                     {/* Dock Header */}
+                     <div className='flex items-center justify-between gap-2 border-b border-slate-800 pb-2.5'>
+                        <div className='flex items-center gap-2 min-w-0'>
+                           <span className='w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping shrink-0'></span>
+                           <div className='min-w-0'>
+                              <h4 className='text-xs font-black text-white truncate'>
+                                 Обзвон: г. {sessionCity}
+                              </h4>
+                              <div className='text-[10px] text-teal-400 font-bold'>
+                                 Клиент {currentCallIndex + 1} из {sessionClients.length} (
+                                 {sessionClients.length > 0
+                                    ? Math.round(
+                                         (currentCallIndex / sessionClients.length) * 100
+                                      )
+                                    : 0}
+                                 %)
+                              </div>
+                           </div>
+                        </div>
+                        <div className='flex items-center gap-1 shrink-0'>
+                           <button
+                              type='button'
+                              onClick={() => {
+                                 onRequestSwitchToCallingTab?.()
+                                 setActiveViewMode('workspace')
+                              }}
+                              className='px-2.5 py-1 rounded-lg bg-teal-600 hover:bg-teal-500 text-white text-[11px] font-bold transition flex items-center gap-1 cursor-pointer shadow-xs'
+                              title='Развернуть рабочее место на весь экран'
+                           >
+                              <Maximize2 className='w-3 h-3' />
+                              <span>Развернуть</span>
+                           </button>
+                           <button
+                              type='button'
+                              onClick={() => setIsDockCollapsed(true)}
+                              className='p-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition cursor-pointer'
+                              title='Свернуть в мини-панель'
+                           >
+                              <ChevronDown className='w-3.5 h-3.5' />
+                           </button>
+                           <button
+                              type='button'
+                              onClick={() => {
+                                 if (confirm('Завершить сессию обзвона?')) {
+                                    handleFinishAndExitSession()
+                                 }
+                              }}
+                              className='p-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-rose-400 transition cursor-pointer'
+                              title='Завершить обзвон'
+                           >
+                              <X className='w-3.5 h-3.5' />
+                           </button>
+                        </div>
+                     </div>
 
-                  {/* Dock Content */}
-                  {(() => {
-                     const currentClient = sessionClients[currentCallIndex]
-                     if (!currentClient || isSessionFinished) {
+                     {/* Dock Content */}
+                     {(() => {
+                        const currentClient = sessionClients[currentCallIndex]
+                        if (!currentClient || isSessionFinished) {
+                           return (
+                              <div className='text-xs text-center py-2 space-y-2'>
+                                 <p className='text-emerald-400 font-bold'>
+                                    🎉 Обзвон по г. {sessionCity} завершен!
+                                 </p>
+                                 <div className='flex items-center justify-center gap-2'>
+                                    <button
+                                       type='button'
+                                       onClick={() => {
+                                          onRequestSwitchToCallingTab?.()
+                                          setActiveViewMode('workspace')
+                                       }}
+                                       className='px-3 py-1 rounded-lg bg-teal-600 text-white text-xs font-bold cursor-pointer'
+                                    >
+                                       Итоги обзвона
+                                    </button>
+                                    <button
+                                       type='button'
+                                       onClick={handleFinishAndExitSession}
+                                       className='px-3 py-1 rounded-lg bg-slate-800 text-slate-300 text-xs font-bold cursor-pointer'
+                                    >
+                                       Выйти
+                                    </button>
+                                 </div>
+                              </div>
+                           )
+                        }
+                        const primaryPhone = currentClient.phones?.[0]
+                        const cleanDigits = primaryPhone?.replace(/[^\d+]/g, '')
+
                         return (
-                           <div className='text-xs text-center py-2 space-y-2'>
-                              <p className='text-emerald-400 font-bold'>
-                                 🎉 Обзвон по г. {sessionCity} завершен!
-                              </p>
-                              <div className='flex items-center justify-center gap-2'>
+                           <div className='space-y-2.5'>
+                              <div>
+                                 <div className='text-[10px] uppercase font-bold text-slate-400 tracking-wider'>
+                                    Текущий клиент:
+                                 </div>
+                                 <div className='text-sm font-black text-white truncate'>
+                                    {currentClient.name}
+                                 </div>
+                                 <div className='text-[11px] text-slate-400 truncate'>
+                                    {currentClient.city}
+                                 </div>
+                              </div>
+
+                              {/* Phone & Call Button */}
+                              {primaryPhone ? (
+                                 <div className='flex items-center justify-between gap-2 p-2 rounded-xl bg-slate-800/80 border border-slate-700/60'>
+                                    <span className='font-mono text-xs font-black text-teal-300 truncate'>
+                                       {primaryPhone}
+                                    </span>
+                                    <div className='flex items-center gap-1.5 shrink-0'>
+                                       <button
+                                          type='button'
+                                          onClick={(e) =>
+                                             handleCopyText(primaryPhone, 'phone', e)
+                                          }
+                                          className='p-1 rounded-lg hover:bg-slate-700 text-slate-300 cursor-pointer'
+                                          title='Скопировать'
+                                       >
+                                          <Copy className='w-3.5 h-3.5' />
+                                       </button>
+                                       <a
+                                          href={`tel:${cleanDigits}`}
+                                          className='px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black flex items-center gap-1 shadow-sm'
+                                       >
+                                          <Phone className='w-3.5 h-3.5' />
+                                          <span>Набрать</span>
+                                       </a>
+                                    </div>
+                                 </div>
+                              ) : (
+                                 <div className='text-[11px] text-amber-400'>
+                                    Номера телефонов не указаны
+                                 </div>
+                              )}
+
+                              {/* Quick outcomes in dock */}
+                              <div className='grid grid-cols-5 gap-1.5 pt-1'>
                                  <button
                                     type='button'
-                                    onClick={() => {
-                                       onRequestSwitchToCallingTab?.()
-                                       setActiveViewMode('workspace')
-                                    }}
-                                    className='px-3 py-1 rounded-lg bg-teal-600 text-white text-xs font-bold'
+                                    disabled={isSavingCallAction}
+                                    onClick={() => handleCallAction('ORDER_PLACED')}
+                                    className='h-11 rounded-xl bg-emerald-700 hover:bg-emerald-600 text-white font-extrabold text-[11px] flex items-center justify-center gap-1 px-1 transition cursor-pointer shadow-sm active:scale-95'
+                                    title='Сделала заявку'
                                  >
-                                    Итоги обзвона
+                                    <span className='text-xs shrink-0'>🛒</span>
+                                    <span className='whitespace-nowrap'>Заявка</span>
                                  </button>
                                  <button
                                     type='button'
-                                    onClick={handleFinishAndExitSession}
-                                    className='px-3 py-1 rounded-lg bg-slate-800 text-slate-300 text-xs font-bold'
+                                    disabled={isSavingCallAction}
+                                    onClick={() => handleOpenCallbackModal(currentClient)}
+                                    className='h-11 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-extrabold text-[10.5px] tracking-tight flex items-center justify-center gap-1 px-1 transition cursor-pointer shadow-sm ring-1 ring-amber-400/50 active:scale-95'
+                                    title='Назначить перезвон'
                                  >
-                                    Выйти
+                                    <span className='text-xs shrink-0'>⏰</span>
+                                    <span className='whitespace-nowrap'>Перезвонить</span>
                                  </button>
+                                 <button
+                                    type='button'
+                                    disabled={isSavingCallAction}
+                                    onClick={() => handleCallAction('NO_ANSWER')}
+                                    className='h-11 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-extrabold text-[10px] tracking-tight flex items-center justify-center gap-1 px-1 transition cursor-pointer shadow-sm active:scale-95'
+                                    title='Не ответили'
+                                 >
+                                    <span className='text-xs shrink-0'>📵</span>
+                                    <span className='whitespace-nowrap'>Не отвечает</span>
+                                 </button>
+                                 <button
+                                    type='button'
+                                    disabled={isSavingCallAction}
+                                    onClick={() => handleCallAction('SKIPPED')}
+                                    className='h-11 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-200 font-extrabold text-[11px] flex items-center justify-center gap-1 px-1 transition cursor-pointer shadow-sm active:scale-95'
+                                    title='Пропустить'
+                                 >
+                                    <span className='text-xs shrink-0'>⏭️</span>
+                                    <span className='whitespace-nowrap'>Пропуск</span>
+                                 </button>
+                                 <button
+                                    type='button'
+                                    disabled={isSavingCallAction}
+                                    onClick={() => handleCallAction('DID_NOT_PAY')}
+                                    className='h-11 rounded-xl bg-rose-700 hover:bg-rose-600 text-white font-extrabold text-[11px] flex items-center justify-center gap-1 px-1 transition cursor-pointer shadow-sm active:scale-95'
+                                    title='Не оплатила'
+                                 >
+                                    <span className='text-xs shrink-0'>⚠️</span>
+                                    <span className='whitespace-nowrap'>Не опл.</span>
+                                 </button>
+                              </div>
+
+                              {/* Сворачиваемый блок очереди («Далее по списку») */}
+                              {sessionClients.length > 1 && (
+                                 <div className='pt-1 border-t border-slate-800/80'>
+                                    <div className='text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1'>
+                                       Очередь ({currentCallIndex + 1}/{sessionClients.length}):
+                                    </div>
+                                    <div className='max-h-24 overflow-y-auto space-y-0.5 pr-1 text-[11px]'>
+                                       {sessionClients.map((c, idx) => {
+                                          const isCur = idx === currentCallIndex
+                                          return (
+                                             <div
+                                                key={c.id}
+                                                onClick={() => setCurrentCallIndex(idx)}
+                                                className={`px-2 py-1 rounded-lg flex items-center justify-between gap-1.5 transition cursor-pointer ${
+                                                   isCur
+                                                      ? 'bg-teal-950/80 border border-teal-500/50 text-teal-300 font-bold'
+                                                      : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'
+                                                }`}
+                                             >
+                                                <div className='truncate flex items-center gap-1.5 min-w-0'>
+                                                   <span className='text-[10px] opacity-60 font-mono'>#{idx + 1}</span>
+                                                   <span className='truncate'>{c.name}</span>
+                                                </div>
+                                                {c.phones?.[0] && (
+                                                   <span className='font-mono text-[10px] text-slate-500 shrink-0'>
+                                                      {c.phones[0]}
+                                                   </span>
+                                                )}
+                                             </div>
+                                          )
+                                       })}
+                                    </div>
+                                 </div>
+                              )}
+
+                              <div className='text-[10px] text-slate-400 text-center pt-0.5'>
+                                 Работа не сбрасывается при переходе между вкладками
                               </div>
                            </div>
                         )
-                     }
-                     const primaryPhone = currentClient.phones?.[0]
-                     const cleanDigits = primaryPhone?.replace(/[^\d+]/g, '')
-
-                     return (
-                        <div className='space-y-2.5'>
-                           <div>
-                              <div className='text-[10px] uppercase font-bold text-slate-400 tracking-wider'>
-                                 Текущий клиент:
-                              </div>
-                              <div className='text-sm font-black text-white truncate'>
-                                 {currentClient.name}
-                              </div>
-                              <div className='text-[11px] text-slate-400 truncate'>
-                                 {currentClient.city}
-                              </div>
-                           </div>
-
-                           {/* Phone & Call Button */}
-                           {primaryPhone ? (
-                              <div className='flex items-center justify-between gap-2 p-2 rounded-xl bg-slate-800/80 border border-slate-700/60'>
-                                 <span className='font-mono text-xs font-black text-teal-300 truncate'>
-                                    {primaryPhone}
-                                 </span>
-                                 <div className='flex items-center gap-1.5 shrink-0'>
-                                    <button
-                                       type='button'
-                                       onClick={(e) =>
-                                          handleCopyText(primaryPhone, 'phone', e)
-                                       }
-                                       className='p-1 rounded-lg hover:bg-slate-700 text-slate-300'
-                                       title='Скопировать'
-                                    >
-                                       <Copy className='w-3.5 h-3.5' />
-                                    </button>
-                                    <a
-                                       href={`tel:${cleanDigits}`}
-                                       className='px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black flex items-center gap-1 shadow-sm'
-                                    >
-                                       <Phone className='w-3.5 h-3.5' />
-                                       <span>Набрать</span>
-                                    </a>
-                                 </div>
-                              </div>
-                           ) : (
-                              <div className='text-[11px] text-amber-400'>
-                                 Номера телефонов не указаны
-                              </div>
-                           )}
-
-                           {/* Quick outcomes in dock */}
-                           <div className='grid grid-cols-5 gap-1 pt-1'>
-                              <button
-                                 type='button'
-                                 disabled={isSavingCallAction}
-                                 onClick={() => handleCallAction('ORDER_PLACED')}
-                                 className='p-1.5 rounded-lg bg-emerald-700 hover:bg-emerald-600 text-white font-bold text-[10px] text-center transition cursor-pointer'
-                                 title='Сделала заявку'
-                              >
-                                 🛒 Заявка
-                              </button>
-                               <button
-                                  type='button'
-                                  disabled={isSavingCallAction}
-                                  onClick={() => handleOpenCallbackModal(currentClient)}
-                                  className='p-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-white font-bold text-[10px] text-center transition cursor-pointer ring-1 ring-amber-400/50'
-                                  title='Назначить перезвон'
-                               >
-                                  ⏰ Перезвонить
-                               </button>
-                              <button
-                                 type='button'
-                                 disabled={isSavingCallAction}
-                                 onClick={() => handleCallAction('NO_ANSWER')}
-                                 className='p-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-white font-bold text-[10px] text-center transition cursor-pointer'
-                                 title='Не ответили'
-                              >
-                                 📵 Не ответ
-                              </button>
-                              <button
-                                 type='button'
-                                 disabled={isSavingCallAction}
-                                 onClick={() => handleCallAction('SKIPPED')}
-                                 className='p-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 font-bold text-[10px] text-center transition cursor-pointer'
-                                 title='Пропустить'
-                              >
-                                 ⏭️ Пропуск
-                              </button>
-                              <button
-                                 type='button'
-                                 disabled={isSavingCallAction}
-                                 onClick={() => handleCallAction('DID_NOT_PAY')}
-                                 className='p-1.5 rounded-lg bg-rose-700 hover:bg-rose-600 text-white font-bold text-[10px] text-center transition cursor-pointer'
-                                 title='Не оплатила'
-                              >
-                                 ⚠️ Не опл.
-                              </button>
-                           </div>
-
-                           <div className='text-[10px] text-slate-400 text-center pt-0.5'>
-                              Работа не сбрасывается при переходе между вкладками
-                           </div>
-                        </div>
-                     )
-                  })()}
-               </div>,
-               document.body
-            )}
+                     })()}
+                  </div>
+                ),
+                document.body
+             )}
 
          {/* МОДАЛЬНОЕ ОКНО ФИКСАЦИИ ПЕРЕЗВОНОВ («ЖДУТ ЗВОНКА») — Портал в document.body */}
          {isMounted &&
