@@ -14,13 +14,9 @@ import {
   Sliders,
   Eye,
   RefreshCw,
-  Image as ImageIcon,
-  CheckCircle2,
-  Layers,
   Search,
   Upload,
   X,
-  FileSpreadsheet,
 } from 'lucide-react';
 
 export interface PriceTagItem {
@@ -92,6 +88,38 @@ export const PROCESSING_TYPES: Record<'XK' | 'GK' | 'SS' | 'VYAL', ProcessingCon
   },
 };
 
+// Функция очистки веса от скобок (требование 3: '100г. не в скобках должно быть, тоньше')
+export const formatWeightText = (rawWeight?: string | null): string => {
+  if (!rawWeight) return '';
+  return rawWeight.replace(/^\(+|\)+$/g, '').trim();
+};
+
+// Функция динамического размера заголовка Onest (требование 2: если 1 слово, то заметно крупнее)
+export const computeDynamicTitleFontSize = (title: string, desc: string): number => {
+  const cleanTitle = (title || '').trim();
+  const cleanDesc = (desc || '').trim();
+  const isSingleWord = !cleanDesc && cleanTitle.split(/\s+/).length === 1;
+
+  if (isSingleWord) {
+    const len = cleanTitle.length;
+    if (len <= 3) return 155; // СИГ, СОМ, ЯЗЬ
+    if (len <= 4) return 140; // ЩУКА, ЛЕЩ
+    if (len <= 5) return 126; // СУДАК, ТУНЕЦ
+    if (len <= 7) return 112; // ТЕРПУГ, ФОРЕЛЬ
+    if (len <= 9) return 98;  // СКУМБРИЯ
+    return 84;
+  }
+
+  const totalLen = cleanTitle.length + (cleanDesc ? cleanDesc.length + 3 : 0);
+  if (totalLen <= 10) return 88;
+  if (totalLen <= 16) return 76;
+  if (totalLen <= 24) return 66; // СКУМБРИЯ (БЕЗ ГОЛОВЫ)
+  if (totalLen <= 34) return 56;
+  if (totalLen <= 48) return 48; // КОЛБАСА (ФОРЕЛЬ, ТУНЕЦ, МАСЛЯНАЯ)
+  if (totalLen <= 62) return 42;
+  return 36;
+};
+
 const DEFAULT_TAG: PriceTagItem = {
   id: 'current',
   title: 'СИГ',
@@ -100,7 +128,7 @@ const DEFAULT_TAG: PriceTagItem = {
   price: '3333',
   currency: '₽',
   processingType: 'VYAL',
-  textureMode: 'auto',
+  textureMode: 'solid_blue',
   isItalic: true,
   underlineDescription: true,
   showLogo: true,
@@ -118,7 +146,7 @@ const SAMPLE_PRESETS: { name: string; tag: Omit<PriceTagItem, 'id'> }[] = [
       price: '500',
       currency: '₽',
       processingType: 'XK',
-      textureMode: 'auto',
+      textureMode: 'xk',
       isItalic: true,
       underlineDescription: true,
       showLogo: true,
@@ -135,8 +163,8 @@ const SAMPLE_PRESETS: { name: string; tag: Omit<PriceTagItem, 'id'> }[] = [
       price: '3130',
       currency: '₽',
       processingType: 'GK',
-      textureMode: 'auto',
-      isItalic: false,
+      textureMode: 'solid_blue',
+      isItalic: true,
       underlineDescription: true,
       showLogo: true,
       titleFontSize: 0,
@@ -161,15 +189,15 @@ const SAMPLE_PRESETS: { name: string; tag: Omit<PriceTagItem, 'id'> }[] = [
     },
   },
   {
-    name: '4. Сиг • 3333₽ (100г.) • ВЯЛ',
+    name: '4. Сиг • 3333₽ • 100г • ВЯЛ',
     tag: {
       title: 'СИГ',
       description: '',
-      weight: '100г.',
+      weight: '100г',
       price: '3333',
       currency: '₽',
       processingType: 'VYAL',
-      textureMode: 'auto',
+      textureMode: 'solid_blue',
       isItalic: true,
       underlineDescription: true,
       showLogo: true,
@@ -190,7 +218,6 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
   const [isCatalogOpen, setIsCatalogOpen] = useState(false);
   const [catalogSearch, setCatalogSearch] = useState('');
   const [printLayoutMode, setPrintLayoutMode] = useState<'color' | 'eco'>('color');
-  const [printCardsPerPage, setPrintCardsPerPage] = useState<6 | 8>(6);
 
   // Скрытый Canvas для генерации и скачивания PNG
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -229,6 +256,17 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
     return `/textures/${currentTag.textureMode}.jpg`;
   }, [currentTag.textureMode, currentTag.customTextureUrl, currentProcConfig]);
 
+  // Проверка: является ли заголовок одним словом (для динамического размера)
+  const isCurrentSingleWord = useMemo(() => {
+    const cleanDesc = (currentTag.description || '').trim();
+    const cleanTitle = (currentTag.title || '').trim();
+    return !cleanDesc && cleanTitle.split(/\s+/).length === 1;
+  }, [currentTag.title, currentTag.description]);
+
+  const cleanWeightText = useMemo(() => {
+    return formatWeightText(currentTag.weight);
+  }, [currentTag.weight]);
+
   // Функция для отрисовки ценника на Canvas
   const drawTagToCanvas = async (
     tag: PriceTagItem,
@@ -238,6 +276,19 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
     const ctx = targetCanvas.getContext('2d');
     if (!ctx) return;
 
+    // Предзагрузка шрифта Onest перед отрисовкой
+    if (typeof document !== 'undefined' && document.fonts) {
+      try {
+        await Promise.all([
+          document.fonts.load('italic 700 80px "Onest"'),
+          document.fonts.load('900 156px "Onest"'),
+          document.fonts.load('italic 300 24px "Onest"'),
+          document.fonts.load('500 24px "Onest"'),
+          document.fonts.load('900 82px "Onest"'),
+        ]);
+      } catch (e) {}
+    }
+
     const baseW = 1024;
     const baseH = 614;
     targetCanvas.width = baseW * scale;
@@ -246,7 +297,7 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
     ctx.save();
     ctx.scale(scale, scale);
 
-    // 1. Очистка и заливка темного фона по умолчанию
+    // 1. Очистка и заливка темного фона по умолчанию (#171d41 - эталонный синий из референса)
     ctx.fillStyle = '#171d41';
     ctx.fillRect(0, 0, baseW, baseH);
 
@@ -277,8 +328,7 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
         }
         ctx.drawImage(img, 0, 0, baseW, baseH);
       } catch (e) {
-        // Fallback если картинка не загрузилась
-        ctx.fillStyle = '#161d36';
+        ctx.fillStyle = '#171d41';
         ctx.fillRect(0, 0, baseW, baseH);
       }
     }
@@ -293,11 +343,9 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
           }
         : PROCESSING_TYPES[tag.processingType];
 
-    // Форма шильдика: прямоугольник с закругленным правым верхним углом
     const badgeH = 148;
     const badgePaddingX = 46;
-    // Оцениваем ширину текста
-    ctx.font = '900 82px -apple-system, BlinkMacSystemFont, "Montserrat", "Arial Black", sans-serif';
+    ctx.font = '900 82px "Onest", sans-serif';
     const textMetrics = ctx.measureText(proc.badgeText);
     const badgeW = Math.max(260, textMetrics.width + badgePaddingX * 2);
     const badgeTop = baseH - badgeH;
@@ -312,14 +360,12 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
     ctx.lineTo(badgeW, baseH);
     ctx.closePath();
 
-    // Градиент шильдика от темного к светлому слева направо
     const grad = ctx.createLinearGradient(0, 0, badgeW, 0);
     grad.addColorStop(0, proc.colorStart);
     grad.addColorStop(1, proc.colorEnd);
     ctx.fillStyle = grad;
     ctx.fill();
 
-    // Текст шильдика
     ctx.fillStyle = '#151b32';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
@@ -345,7 +391,6 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
         const logoH = (logoW * logoImg.height) / logoImg.width;
         ctx.drawImage(logoImg, baseW - logoW - 36, baseH - logoH - 28, logoW, logoH);
       } catch (e) {
-        // Fallback текстовый логотип если картинка не найдена
         ctx.save();
         ctx.fillStyle = '#ffffff';
         ctx.font = 'bold 22px serif';
@@ -358,23 +403,20 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
     }
 
     // 5. Отрисовка названия и описания (Сверху слева)
+    // Требование 2: шрифт strictly Onest, тоньше заголовок (700 вместо 900),
+    // если 1 слово - намного крупнее (динамический размер)
     ctx.save();
     const titleText = (tag.title || '').trim().toUpperCase();
     const descText = (tag.description || '').trim().toUpperCase();
 
-    // Автоматический или ручной расчет размера шрифта
     let fontSize = tag.titleFontSize;
     if (!fontSize) {
-      const fullLen = titleText.length + (descText ? descText.length + 3 : 0);
-      if (fullLen <= 7) fontSize = 88;
-      else if (fullLen <= 15) fontSize = 74;
-      else if (fullLen <= 26) fontSize = 62;
-      else if (fullLen <= 42) fontSize = 52;
-      else fontSize = 44;
+      fontSize = computeDynamicTitleFontSize(titleText, descText);
     }
 
     const fontStyle = tag.isItalic ? 'italic ' : '';
-    ctx.font = `${fontStyle}800 ${fontSize}px -apple-system, BlinkMacSystemFont, "Montserrat", "Segoe UI", Arial, sans-serif`;
+    // Вес 700 (Bold) - более изящный и точный, строго Onest
+    ctx.font = `${fontStyle}700 ${fontSize}px "Onest", sans-serif`;
     ctx.fillStyle = '#ffffff';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
@@ -382,30 +424,38 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
     const maxTitleWidth = baseW - 90;
     const startX = 48;
     let currentY = 40;
-    const lineHeight = fontSize * 1.14;
+    const lineHeight = fontSize * 1.1;
 
-    // Формируем слова для переноса строк
-    type WordToken = { text: string; isDesc: boolean };
-    const tokens: WordToken[] = [];
+    type Token = {
+      prefix?: string;
+      text: string;
+      suffix?: string;
+      isDesc: boolean;
+    };
+    const tokens: Token[] = [];
     titleText.split(/\s+/).filter(Boolean).forEach((w) => tokens.push({ text: w, isDesc: false }));
 
     if (descText) {
       const descWords = descText.split(/\s+/).filter(Boolean);
       descWords.forEach((w, idx) => {
-        let t = w;
-        if (idx === 0) t = '(' + t;
-        if (idx === descWords.length - 1) t = t + ')';
-        tokens.push({ text: t, isDesc: true });
+        const isFirst = idx === 0;
+        const isLast = idx === descWords.length - 1;
+        tokens.push({
+          prefix: isFirst ? '(' : undefined,
+          text: w,
+          suffix: isLast ? ')' : undefined,
+          isDesc: true,
+        });
       });
     }
 
-    // Разбивка на строки по ширине
-    const lines: WordToken[][] = [];
-    let curLine: WordToken[] = [];
+    const lines: Token[][] = [];
+    let curLine: Token[] = [];
     let curWidth = 0;
 
     for (const token of tokens) {
-      const tokenWidth = ctx.measureText(token.text + ' ').width;
+      const fullWordStr = (token.prefix || '') + token.text + (token.suffix || '');
+      const tokenWidth = ctx.measureText(fullWordStr + ' ').width;
       if (curLine.length > 0 && curWidth + tokenWidth > maxTitleWidth) {
         lines.push(curLine);
         curLine = [token];
@@ -417,93 +467,109 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
     }
     if (curLine.length > 0) lines.push(curLine);
 
-    // Отрисовка строк
     lines.forEach((line) => {
       let x = startX;
       line.forEach((token) => {
-        const textToDraw = token.text;
-        const w = ctx.measureText(textToDraw).width;
+        // Отрисовка префикса (скобки) без подчеркивания
+        if (token.prefix) {
+          ctx.fillText(token.prefix, x, currentY);
+          x += ctx.measureText(token.prefix).width;
+        }
 
-        ctx.fillText(textToDraw, x, currentY);
+        // Отрисовка основного слова
+        const w = ctx.measureText(token.text).width;
+        ctx.fillText(token.text, x, currentY);
 
-        // Подчеркивание для описания в скобках
+        // Подчеркивание только под описанием (не под скобками!)
         if (token.isDesc && tag.underlineDescription) {
           ctx.save();
           ctx.fillStyle = '#ffffff';
           const lineY = currentY + fontSize * 1.05;
-          const lineThickness = Math.max(3, Math.round(fontSize * 0.055));
+          const lineThickness = Math.max(3, Math.round(fontSize * 0.052));
           ctx.fillRect(x, lineY, w, lineThickness);
           ctx.restore();
         }
+        x += w;
 
-        x += w + ctx.measureText(' ').width;
+        // Отрисовка суффикса (закрывающей скобки) без подчеркивания
+        if (token.suffix) {
+          ctx.fillText(token.suffix, x, currentY);
+          x += ctx.measureText(token.suffix).width;
+        }
+
+        x += ctx.measureText(' ').width;
       });
       currentY += lineHeight;
     });
     ctx.restore();
 
     // 6. Отрисовка ЦЕНЫ и ВЕСА
+    // Требование 1: не должно сливаться Рубль (отдельный просчитанный зазор)
+    // Требование 3: 100г. не в скобках, тоньше линия и шрифт
     ctx.save();
     const priceVal = (tag.price || '0').trim();
-    const curr = tag.currency || '₽';
-    const priceStr = `${priceVal}${curr}`;
+    const curr = (tag.currency || '₽').trim();
 
     let priceSize = tag.priceFontSize;
     if (!priceSize) {
-      priceSize = priceStr.length > 6 ? 135 : 158;
+      priceSize = priceVal.length > 5 ? 136 : 156;
     }
 
-    ctx.font = `900 ${priceSize}px -apple-system, BlinkMacSystemFont, "Montserrat", "Segoe UI", Arial, sans-serif`;
+    ctx.font = `900 ${priceSize}px "Onest", sans-serif`;
     ctx.fillStyle = '#ffffff';
     ctx.textBaseline = 'middle';
     ctx.textAlign = 'left';
 
-    const priceMetrics = ctx.measureText(priceStr);
-    const priceW = priceMetrics.width;
+    const numMetrics = ctx.measureText(priceVal);
+    const numW = numMetrics.width;
 
-    // Рассчитываем горизонтальное положение цены (по центру с учетом бейджа веса)
-    const weightVal = (tag.weight || '').trim();
+    // Гарантированный зазор между цифрами и символом ₽ (предотвращает наложение крестовины 4 и бара ₽)
+    const currencyGap = Math.max(16, Math.round(priceSize * 0.12));
+    const currMetrics = ctx.measureText(curr);
+    const currW = currMetrics.width;
+    const fullPriceW = numW + currencyGap + currW;
+
+    // ВЕС: тонкий шрифт Onest italic 300, серенький, без скобок
+    const cleanWeight = formatWeightText(tag.weight);
     let weightPillW = 0;
-    let formattedWeight = weightVal;
-    if (weightVal) {
-      if (!formattedWeight.startsWith('(') && !formattedWeight.endsWith(')')) {
-        formattedWeight = `(${formattedWeight})`;
-      }
+    if (cleanWeight) {
       ctx.save();
-      ctx.font = '700 32px -apple-system, BlinkMacSystemFont, "Montserrat", sans-serif';
-      const wMetrics = ctx.measureText(formattedWeight);
-      weightPillW = wMetrics.width + 30; // 15px padding each side
+      ctx.font = 'italic 300 24px "Onest", sans-serif';
+      const wMetrics = ctx.measureText(cleanWeight);
+      weightPillW = wMetrics.width + 26; // горизонтальные отступы
       ctx.restore();
     }
 
-    const totalGroupW = priceW + (weightVal ? weightPillW + 16 : 0);
-    // Смещение цены вправо относительно центра для баланса с шильдиком слева
-    const rightOffset = 115;
-    const groupStartX = Math.min(baseW - totalGroupW - 40, Math.max(260, (baseW - totalGroupW) / 2 + rightOffset));
-    const priceY = 368;
+    const totalGroupW = fullPriceW + (cleanWeight ? weightPillW + 18 : 0);
+    // Прижатие цены с весом к правому краю (в точном соответствии с референсом)
+    const rightMargin = cleanWeight ? 14 : 36;
+    const groupStartX = Math.max(30, baseW - totalGroupW - rightMargin);
+    const priceY = 382; // чуть ниже для баланса с заголовком
 
-    // Отрисовываем цену
-    ctx.fillText(priceStr, groupStartX, priceY);
+    // Отрисовка цифр
+    ctx.fillText(priceVal, groupStartX, priceY);
 
-    // 7. Отрисовка ВЕСА (справа от цены сверху)
-    if (weightVal) {
-      const weightX = groupStartX + priceW + 16;
-      // Вверху относительно цены:
-      const weightY = priceY - priceSize * 0.42;
+    // Отрисовка символа валюты с четким отступом
+    ctx.fillText(curr, groupStartX + numW + currencyGap, priceY);
+
+    // 7. Отрисовка ВЕСА (справа от цены сверху - тонкая серенькая капсула)
+    if (cleanWeight) {
+      const weightX = groupStartX + fullPriceW + 18;
+      const weightY = priceY - priceSize * 0.26;
 
       ctx.save();
-      ctx.font = '700 30px -apple-system, BlinkMacSystemFont, "Montserrat", sans-serif';
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
+      ctx.font = 'italic 300 24px "Onest", sans-serif';
+      ctx.fillStyle = '#6c7290';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
 
-      const pillH = 46;
-      const pillRadius = 23;
+      const pillH = 38;
+      const pillRadius = 19;
 
-      // Овальная рамка
+      // Тонкая рамка 1px
       ctx.beginPath();
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.45)';
-      ctx.lineWidth = 2.5;
+      ctx.strokeStyle = '#565c78';
+      ctx.lineWidth = 1;
       if (typeof ctx.roundRect === 'function') {
         ctx.roundRect(weightX, weightY - pillH / 2, weightPillW, pillH, pillRadius);
       } else {
@@ -511,13 +577,13 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
       }
       ctx.stroke();
 
-      // Текст внутри рамки
-      ctx.fillText(formattedWeight, weightX + weightPillW / 2, weightY + 1);
+      // Текст без скобок
+      ctx.fillText(cleanWeight, weightX + weightPillW / 2, weightY + 1);
       ctx.restore();
     }
 
     ctx.restore();
-    ctx.restore(); // Final pop of scale
+    ctx.restore(); // scale pop
   };
 
   // Перерисовка Canvas при изменении параметров
@@ -584,38 +650,6 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
     toast.success(`Ценник «${currentTag.title}» добавлен в очередь на печать!`);
   };
 
-  // Добавление всех запланированных позиций из каталога/недели
-  const handleAddAllFromCatalog = () => {
-    if (!catalogItems || catalogItems.length === 0) {
-      toast.error('В текущем плане нет позиций');
-      return;
-    }
-
-    const newTags: PriceTagItem[] = catalogItems
-      .filter((i) => i.productName && !i.isDeleted)
-      .map((item, idx) => {
-        const parsed = parseProductText(item.productName);
-        return {
-          id: `batch_${Date.now()}_${idx}`,
-          title: parsed.title,
-          description: parsed.description,
-          weight: '100г',
-          price: item.price ? String(Math.round(item.price)) : '0',
-          currency: '₽',
-          processingType: parsed.procType,
-          textureMode: 'auto',
-          isItalic: true,
-          underlineDescription: true,
-          showLogo: true,
-          titleFontSize: 0,
-          priceFontSize: 0,
-        };
-      });
-
-    setPrintQueue((prev) => [...prev, ...newTags]);
-    toast.success(`Добавлено ${newTags.length} ценников из плана цеха!`);
-  };
-
   // Удаление ценника из очереди
   const handleRemoveFromQueue = (id: string) => {
     setPrintQueue((prev) => prev.filter((t) => t.id !== id));
@@ -660,7 +694,6 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
     let text = rawName.trim();
     let procType: 'XK' | 'GK' | 'SS' | 'VYAL' = 'XK';
 
-    // Определение вида обработки
     const lower = text.toLowerCase();
     if (lower.includes('г/к') || lower.includes('г.к.') || lower.includes('горяч')) {
       procType = 'GK';
@@ -669,15 +702,13 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
     } else if (lower.includes('вял') || lower.includes('вялен')) {
       procType = 'VYAL';
     } else {
-      procType = 'XK'; // По умолчанию Х/К
+      procType = 'XK';
     }
 
-    // Удаляем маркер обработки из названия
     text = text
       .replace(/(?:^|\s)(?:х\/к|х\.к\.|г\/к|г\.к\.|с\/с|с\.с\.|вял\.?|вяленая|вяленый)(?:$|\s)/gi, ' ')
       .trim();
 
-    // Извлекаем описание в скобках, если есть
     let title = text;
     let description = '';
 
@@ -686,7 +717,6 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
       description = parenMatch[1].trim();
       title = text.replace(/\(.*?\)/, '').trim();
     } else {
-      // Проверяем распространенные суффиксы: б/г, с/г, кусок, пласт, филе
       const subMatch = text.match(/(?:б\/г|с\/г|без головы|кусок|пласт|филе|нарезка|ломтики|тушка)/i);
       if (subMatch && subMatch.index && subMatch.index > 0) {
         title = text.substring(0, subMatch.index).trim();
@@ -697,7 +727,6 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
     return { title: title.toUpperCase(), description: description.toUpperCase(), procType };
   };
 
-  // При выборе товара из каталога
   const handleSelectCatalogItem = (item: any) => {
     const parsed = parseProductText(item.productName || '');
     setCurrentTag((prev) => ({
@@ -706,13 +735,12 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
       description: parsed.description,
       price: item.price ? String(Math.round(item.price)) : prev.price,
       processingType: parsed.procType,
-      textureMode: 'auto',
+      textureMode: 'solid_blue',
     }));
     setIsCatalogOpen(false);
     toast.success(`Выбран товар: ${parsed.title}`);
   };
 
-  // Фильтрация позиций каталога для модалки
   const filteredCatalogItems = useMemo(() => {
     if (!catalogItems) return [];
     if (!catalogSearch.trim()) return catalogItems.slice(0, 50);
@@ -733,15 +761,15 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h2 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
+              <h2 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight font-sans">
                 Генератор ценников
               </h2>
               <span className="px-2.5 py-0.5 rounded-full text-xs font-black bg-teal-100 text-teal-800">
-                PRO 1024×614
+                10 × 6 см
               </span>
             </div>
             <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
-              Создание фирменных ценников ТопФиш (Х/К, Г/К, С/С, ВЯЛ) с печатью и экспортом в HD
+              Фирменные ценники ТопФиш (шрифт Onest, динамический размер, экспорт в HD и печать на А4)
             </p>
           </div>
         </div>
@@ -793,12 +821,12 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
         </div>
       </div>
 
-      {/* Готовые пресеты образцов из фото пользователя */}
+      {/* Готовые пресеты образцов из референсов */}
       <div className="bg-slate-50/80 rounded-2xl p-4 border border-slate-200/60">
         <div className="flex items-center gap-2 mb-2.5">
           <Sparkles className="w-4 h-4 text-amber-500" />
           <span className="text-xs font-bold text-slate-700 uppercase tracking-wider">
-            Образцы ценников (как на ваших примерах):
+            Образцы ценников (соответствие вашим референсам):
           </span>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
@@ -830,7 +858,7 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
                 />
                 <span>Вид: {preset.tag.processingType}</span>
                 {preset.tag.weight && (
-                  <span className="text-slate-400">• {preset.tag.weight}</span>
+                  <span className="text-slate-400">• {formatWeightText(preset.tag.weight)}</span>
                 )}
               </div>
             </button>
@@ -838,9 +866,9 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
         </div>
       </div>
 
-      {/* Основная сетка: Редактор слева + Интерактивный предпросмотр справа */}
+      {/* Основная сетка: Редактор параметров слева + Интерактивный Live Preview справа */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        {/* ЛЕВАЯ КОЛОНКА: Панель параметров ценника (5 колонок) */}
+        {/* ЛЕВАЯ КОЛОНКА: Панель параметров (5 колонок) */}
         <div className="lg:col-span-5 space-y-5">
           <div className="bg-white rounded-3xl p-5 sm:p-6 border border-slate-200/80 shadow-xs space-y-5">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
@@ -860,17 +888,25 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
 
             {/* НАЗВАНИЕ ТОВАРА */}
             <div>
-              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-                НАЗВАНИЕ (ОСНОВНОЕ):
-              </label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+                  НАЗВАНИЕ (ОСНОВНОЕ):
+                </label>
+                {isCurrentSingleWord && (
+                  <span className="text-[11px] font-bold text-teal-600 bg-teal-50 px-2 py-0.5 rounded-md">
+                    ⚡ 1 слово: авто-укрупнение (как в референсе)
+                  </span>
+                )}
+              </div>
               <input
                 type="text"
                 value={currentTag.title}
                 onChange={(e) =>
                   setCurrentTag((prev) => ({ ...prev, title: e.target.value.toUpperCase() }))
                 }
-                placeholder="КОЛБАСА, ТЕРПУГ, СКУМБРИЯ, СИГ"
+                placeholder="СИГ, СКУМБРИЯ, ТЕРПУГ, КОЛБАСА"
                 className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50/50 text-slate-900 font-bold text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:bg-white transition"
+                style={{ fontFamily: '"Onest", sans-serif' }}
               />
             </div>
 
@@ -892,7 +928,7 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
                     }
                     className="rounded text-teal-600 focus:ring-teal-500"
                   />
-                  <span>Подчеркивать</span>
+                  <span>Подчеркивать текст</span>
                 </label>
               </div>
               <input
@@ -904,11 +940,12 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
                     description: e.target.value.toUpperCase(),
                   }))
                 }
-                placeholder="ФОРЕЛЬ, ТУНЕЦ, МАСЛЯНАЯ / БЕЗ ГОЛОВЫ"
+                placeholder="БЕЗ ГОЛОВЫ / ФОРЕЛЬ, ТУНЕЦ, МАСЛЯНАЯ"
                 className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50/50 text-slate-900 font-bold text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:bg-white transition"
+                style={{ fontFamily: '"Onest", sans-serif' }}
               />
               <span className="text-[11px] text-slate-400 mt-1 block">
-                Будет автоматически заключено в скобки, например: ({currentTag.description || 'ОПИСАНИЕ'})
+                Автоматически заключается в скобки, подчеркиваются только слова внутри
               </span>
             </div>
 
@@ -938,11 +975,12 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
                       }`}
                     >
                       <div className="flex items-center justify-between">
-                        <span className="font-extrabold text-sm">{item.badgeText}</span>
+                        <span className="font-black text-sm" style={{ fontFamily: '"Onest", sans-serif' }}>
+                          {item.badgeText}
+                        </span>
                         {isSelected && <Check className="w-4 h-4 text-teal-400" />}
                       </div>
 
-                      {/* Индикатор градиента */}
                       <div
                         className="h-2 rounded-full mt-2 w-full"
                         style={{
@@ -961,7 +999,6 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
                 })}
               </div>
 
-              {/* Возможность выбрать свой вид обработки */}
               <div className="mt-2 text-right">
                 <button
                   type="button"
@@ -1027,7 +1064,6 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
 
             {/* ЦЕНА ЗА ВЕС И ВЕС */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-              {/* ЦЕНА ЗА ВЕС */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
                   ЦЕНА:
@@ -1040,15 +1076,18 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
                       setCurrentTag((prev) => ({ ...prev, price: e.target.value }))
                     }
                     placeholder="3333"
-                    className="w-full pl-3.5 pr-8 py-2.5 rounded-xl border border-slate-200 bg-slate-50/50 text-slate-900 font-extrabold text-base focus:outline-none focus:ring-2 focus:ring-teal-500 focus:bg-white transition"
+                    className="w-full pl-3.5 pr-8 py-2.5 rounded-xl border border-slate-200 bg-slate-50/50 text-slate-900 font-black text-base focus:outline-none focus:ring-2 focus:ring-teal-500 focus:bg-white transition"
+                    style={{ fontFamily: '"Onest", sans-serif' }}
                   />
-                  <span className="absolute right-3 top-2.5 text-base font-extrabold text-slate-400">
+                  <span
+                    className="absolute right-3 top-2.5 text-base font-black text-slate-400"
+                    style={{ fontFamily: '"Onest", sans-serif' }}
+                  >
                     {currentTag.currency}
                   </span>
                 </div>
               </div>
 
-              {/* ВЕС (по умолчанию 100г) */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
                   ВЕС:
@@ -1059,9 +1098,13 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
                   onChange={(e) =>
                     setCurrentTag((prev) => ({ ...prev, weight: e.target.value }))
                   }
-                  placeholder="100г, 1кг, 1 шт"
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50/50 text-slate-900 font-bold text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:bg-white transition"
+                  placeholder="100г., 150г, 1кг"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50/50 text-slate-900 font-medium text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:bg-white transition"
+                  style={{ fontFamily: '"Onest", sans-serif' }}
                 />
+                <span className="text-[10px] text-slate-400 mt-1 block">
+                  Отображается справа от цены в тонкой овальной рамке (без скобок)
+                </span>
               </div>
             </div>
 
@@ -1069,13 +1112,13 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
             <div>
               <div className="flex flex-wrap items-center gap-1.5">
                 <span className="text-[11px] text-slate-400 mr-1">Быстрый вес:</span>
-                {['100г.', '100г', '150г', '200г', '250г', '500г', '1 кг', '1 шт'].map((w) => (
+                {['100г', '150г', '200г', '250г', '500г', '1 кг', '1 шт'].map((w) => (
                   <button
                     key={w}
                     type="button"
                     onClick={() => setCurrentTag((prev) => ({ ...prev, weight: w }))}
-                    className={`px-2 py-0.5 rounded-md text-[11px] font-bold transition cursor-pointer ${
-                      currentTag.weight === w
+                    className={`px-2 py-0.5 rounded-md text-[11px] font-medium transition cursor-pointer ${
+                      formatWeightText(currentTag.weight) === formatWeightText(w)
                         ? 'bg-teal-600 text-white'
                         : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
                     }`}
@@ -1103,6 +1146,17 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
               <div className="grid grid-cols-3 gap-2">
                 <button
                   type="button"
+                  onClick={() => setCurrentTag((prev) => ({ ...prev, textureMode: 'solid_blue' }))}
+                  className={`p-2 rounded-xl border text-center transition cursor-pointer text-xs font-bold ${
+                    currentTag.textureMode === 'solid_blue'
+                      ? 'border-teal-600 bg-teal-50 text-teal-800 ring-2 ring-teal-500/20'
+                      : 'border-slate-200 bg-white hover:bg-slate-50 text-slate-700'
+                  }`}
+                >
+                  🔷 Просто синий
+                </button>
+                <button
+                  type="button"
                   onClick={() => setCurrentTag((prev) => ({ ...prev, textureMode: 'auto' }))}
                   className={`p-2 rounded-xl border text-center transition cursor-pointer text-xs font-bold ${
                     currentTag.textureMode === 'auto'
@@ -1110,18 +1164,7 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
                       : 'border-slate-200 bg-white hover:bg-slate-50 text-slate-700'
                   }`}
                 >
-                  ⚡ Авто (по виду)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setCurrentTag((prev) => ({ ...prev, textureMode: 'solid_blue' }))}
-                  className={`p-2 rounded-xl border text-center transition cursor-pointer text-xs font-bold ${
-                    currentTag.textureMode === 'solid_blue'
-                      ? 'border-teal-600 bg-teal-50 text-teal-800'
-                      : 'border-slate-200 bg-white hover:bg-slate-50 text-slate-700'
-                  }`}
-                >
-                  🔷 Просто синий
+                  ⚡ Авто-текстура
                 </button>
                 <button
                   type="button"
@@ -1167,9 +1210,9 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
                 >
                   ВЯЛ (минерал)
                 </button>
-                <label className="p-2 rounded-xl border border-dashed border-slate-300 hover:border-teal-500 bg-white hover:bg-teal-50 text-center transition cursor-pointer text-xs font-bold text-slate-700 flex items-center justify-center gap-1">
+                <label className="col-span-3 p-2 rounded-xl border border-dashed border-slate-300 hover:border-teal-500 bg-white hover:bg-teal-50 text-center transition cursor-pointer text-xs font-bold text-slate-700 flex items-center justify-center gap-1.5">
                   <Upload className="w-3.5 h-3.5 text-teal-600" />
-                  <span>Свой фон</span>
+                  <span>Загрузить свой фон с компьютера</span>
                   <input
                     type="file"
                     accept="image/*"
@@ -1216,13 +1259,13 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
               <div className="flex items-center gap-2">
                 <Eye className="w-4 h-4 text-teal-600" />
                 <h3 className="font-extrabold text-slate-900 text-base">
-                  Живой предпросмотр (1024×614)
+                  Живой предпросмотр (Шрифт ONEST)
                 </h3>
               </div>
-              <span className="text-xs text-slate-400">Точное соответствие при печати</span>
+              <span className="text-xs text-slate-400">Точное соответствие при печати и экспорте</span>
             </div>
 
-            {/* САМА КАРТОЧКА ЦЕННИКА (В масштабе, 100% точный вид) */}
+            {/* САМА КАРТОЧКА ЦЕННИКА (Шрифт Onest, 100% точное соответствие) */}
             <div className="w-full overflow-hidden rounded-2xl shadow-xl shadow-slate-900/10 border border-slate-300/80 bg-slate-900">
               <div
                 ref={previewCardRef}
@@ -1234,19 +1277,24 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
                   backgroundPosition: 'center',
                 }}
               >
-                {/* 1. Верхний текст: Название и Описание */}
+                {/* 1. Верхний текст: Название и Описание (Тоньше заголовок: weight 700, шрифт Onest, если 1 слово - крупнее) */}
                 <div
                   className="absolute left-[4.8%] top-[5.5%] max-w-[90%] text-white"
                   style={{
-                    fontFamily:
-                      '-apple-system, BlinkMacSystemFont, "Montserrat", "Segoe UI", Arial, sans-serif',
+                    fontFamily: '"Onest", sans-serif',
                     fontStyle: currentTag.isItalic ? 'italic' : 'normal',
-                    fontWeight: 800,
+                    fontWeight: 700,
                     textTransform: 'uppercase',
-                    lineHeight: 1.15,
+                    lineHeight: 1.1,
                   }}
                 >
-                  <div className="text-[clamp(18px,4.5vw,46px)] tracking-tight">
+                  <div
+                    className={`tracking-tight ${
+                      isCurrentSingleWord
+                        ? 'text-[clamp(34px,9.2vw,98px)]'
+                        : 'text-[clamp(16px,4.3vw,46px)]'
+                    }`}
+                  >
                     <span>{currentTag.title || 'НАЗВАНИЕ ТОВАРА'}</span>
                     {currentTag.description && (
                       <span className="ml-2">
@@ -1256,7 +1304,7 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
                             textDecoration: currentTag.underlineDescription
                               ? 'underline'
                               : 'none',
-                            textUnderlineOffset: '4px',
+                            textUnderlineOffset: '5px',
                             textDecorationThickness: '3px',
                           }}
                         >
@@ -1268,34 +1316,48 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
                   </div>
                 </div>
 
-                {/* 2. ЦЕНА И ВЕС ПО ЦЕНТРУ */}
-                <div className="absolute inset-0 flex items-center justify-center pointer-events-none pt-12 pl-[18%]">
-                  <div className="flex items-start justify-center">
-                    <span
-                      className="text-white font-black tracking-tight"
+                {/* 2. ЦЕНА И ВЕС СПРАВА (чуть ниже для гармонии с заголовком) */}
+                {/* Требование 1: Рубль не сливается (отдельный span с margin-left) */}
+                {/* Требование 3: Вес без скобок, тоньше */}
+                <div
+                  className="absolute inset-x-0 bottom-0 top-[12%] flex items-center justify-end pointer-events-none"
+                  style={{
+                    paddingRight: cleanWeightText ? '1.4%' : '3.5%',
+                  }}
+                >
+                  <div className="flex items-start justify-end">
+                    <div
+                      className="flex items-baseline text-white font-black"
                       style={{
-                        fontSize: 'clamp(36px,10.5vw,110px)',
-                        fontFamily:
-                          '-apple-system, BlinkMacSystemFont, "Montserrat", "Segoe UI", Arial, sans-serif',
+                        fontFamily: '"Onest", sans-serif',
+                        fontSize: 'clamp(36px,10vw,108px)',
                         lineHeight: 1,
                       }}
                     >
-                      {currentTag.price || '0'}
-                      {currentTag.currency}
-                    </span>
-
-                    {/* ВЕС СПРАВА ОТ ЦЕНЫ СВЕРХУ */}
-                    {currentTag.weight && (
-                      <div
-                        className="ml-2 sm:ml-3 -mt-1 sm:-mt-2 px-2 sm:px-3 py-0.5 sm:py-1 rounded-full border border-white/45 text-white/90 font-bold tracking-wide"
+                      <span>{currentTag.price || '0'}</span>
+                      <span
                         style={{
-                          fontSize: 'clamp(10px,2.2vw,22px)',
-                          lineHeight: 1,
+                          marginLeft: '0.14em', // Гарантированный зазор перед символом ₽!
                         }}
                       >
-                        {currentTag.weight.startsWith('(')
-                          ? currentTag.weight
-                          : `(${currentTag.weight})`}
+                        {currentTag.currency || '₽'}
+                      </span>
+                    </div>
+
+                    {/* ВЕС СПРАВА ОТ ЦЕНЫ СВЕРХУ - ТОНЬШЕ, СЕРЕНЬКИЙ, ИТАЛИК, БЕЗ СКОБОК */}
+                    {cleanWeightText && (
+                      <div
+                        className="ml-1.5 sm:ml-2.5 -mt-0.5 sm:-mt-1 px-2 sm:px-3 py-0.5 rounded-full italic tracking-wide flex items-center justify-center shrink-0"
+                        style={{
+                          fontSize: 'clamp(10px,1.8vw,18px)',
+                          lineHeight: 1.1,
+                          fontFamily: '"Onest", sans-serif',
+                          fontWeight: 300,
+                          color: '#6c7290',
+                          border: '1px solid #565c78',
+                        }}
+                      >
+                        {cleanWeightText}
                       </div>
                     )}
                   </div>
@@ -1313,8 +1375,7 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
                     background: `linear-gradient(to right, ${currentProcConfig.colorStart}, ${currentProcConfig.colorEnd})`,
                     color: '#151b32',
                     fontSize: 'clamp(18px,5.5vw,56px)',
-                    fontFamily:
-                      '-apple-system, BlinkMacSystemFont, "Montserrat", "Arial Black", sans-serif',
+                    fontFamily: '"Onest", sans-serif',
                     lineHeight: 1,
                   }}
                 >
@@ -1405,17 +1466,6 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            {catalogItems.length > 0 && (
-              <button
-                type="button"
-                onClick={handleAddAllFromCatalog}
-                className="px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
-              >
-                <FileSpreadsheet className="w-3.5 h-3.5 text-teal-600" />
-                <span>+ Добавить весь план недели ({catalogItems.length})</span>
-              </button>
-            )}
-
             {printQueue.length > 0 && (
               <>
                 <button
@@ -1443,28 +1493,12 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
         {/* Настройки печати сетки */}
         {printQueue.length > 0 && (
           <div className="flex flex-wrap items-center justify-between gap-4 p-3 rounded-2xl bg-slate-50 border border-slate-200 text-xs font-bold text-slate-700">
-            <div className="flex items-center gap-4">
-              <span className="text-slate-400">Формат сетки:</span>
-              <label className="flex items-center gap-1.5 cursor-pointer">
-                <input
-                  type="radio"
-                  name="cardsPerPage"
-                  checked={printCardsPerPage === 6}
-                  onChange={() => setPrintCardsPerPage(6)}
-                  className="text-teal-600 focus:ring-teal-500"
-                />
-                <span>6 шт на лист А4 (2×3, крупнее)</span>
-              </label>
-              <label className="flex items-center gap-1.5 cursor-pointer">
-                <input
-                  type="radio"
-                  name="cardsPerPage"
-                  checked={printCardsPerPage === 8}
-                  onChange={() => setPrintCardsPerPage(8)}
-                  className="text-teal-600 focus:ring-teal-500"
-                />
-                <span>8 шт на лист А4 (2×4, компактно)</span>
-              </label>
+            <div className="flex items-center gap-2.5">
+              <span className="text-slate-400">Формат ценника:</span>
+              <span className="px-2.5 py-1 rounded-lg bg-white border border-slate-200 text-slate-800 font-extrabold text-xs shadow-2xs">
+                10 см ширина × 6 см высота
+              </span>
+              <span className="text-slate-400 text-[11px] font-normal">(строгий стандарт, 8 шт на лист А4)</span>
             </div>
 
             <div className="flex items-center gap-4">
@@ -1477,7 +1511,7 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
                   onChange={() => setPrintLayoutMode('color')}
                   className="text-teal-600 focus:ring-teal-500"
                 />
-                <span>Полноцветный (с текстурой)</span>
+                <span>Полноцветный (синий фон/текстура)</span>
               </label>
               <label className="flex items-center gap-1.5 cursor-pointer">
                 <input
@@ -1499,8 +1533,7 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
             <Printer className="w-10 h-10 mx-auto mb-2 text-slate-300" />
             <p className="text-sm font-bold text-slate-600">Очередь печати пуста</p>
             <p className="text-xs text-slate-400 mt-1 max-w-md mx-auto">
-              Нажмите кнопку «В очередь на печать» в редакторе выше или «+ Добавить весь план недели»,
-              чтобы отправить сразу несколько ценников на печать на лист А4.
+              Нажмите кнопку «В очередь» в редакторе выше, чтобы отправить ценник в очередь и распечатать несколько ценников на листе А4.
             </p>
           </div>
         ) : (
@@ -1526,30 +1559,47 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
                       : PROCESSING_TYPES[tag.processingType].textureUrl)
                   : `/textures/${tag.textureMode}.jpg`;
 
+              const cleanItemWeight = formatWeightText(tag.weight);
+
               return (
                 <div
                   key={tag.id}
                   className="p-3 rounded-2xl border border-slate-200 bg-white hover:border-slate-300 shadow-2xs transition flex flex-col justify-between group"
                 >
-                  {/* Мини-превью */}
                   <div
                     className="relative w-full aspect-[1024/614] rounded-xl overflow-hidden mb-2.5"
                     style={{
-                      backgroundColor: '#141b33',
+                      backgroundColor: '#171d41',
                       backgroundImage: tagTexture ? `url(${tagTexture})` : 'none',
                       backgroundSize: 'cover',
                       backgroundPosition: 'center',
                     }}
                   >
-                    <div className="absolute left-2 top-1.5 text-white font-extrabold text-[10px] leading-tight max-w-[85%] truncate">
+                    <div
+                      className="absolute left-2 top-1.5 text-white font-bold text-[10px] leading-tight max-w-[85%] truncate"
+                      style={{ fontFamily: '"Onest", sans-serif' }}
+                    >
                       {tag.title} {tag.description ? `(${tag.description})` : ''}
                     </div>
 
-                    <div className="absolute inset-0 flex items-center justify-center text-white font-black text-sm">
-                      {tag.price}
-                      {tag.currency}
-                      {tag.weight && (
-                        <span className="text-[8px] ml-1 text-white/70">({tag.weight})</span>
+                    <div
+                      className="absolute inset-0 flex items-center justify-end pr-2 text-white font-black text-sm"
+                      style={{ fontFamily: '"Onest", sans-serif' }}
+                    >
+                      <span>{tag.price}</span>
+                      <span style={{ marginLeft: '0.12em' }}>{tag.currency}</span>
+                      {cleanItemWeight && (
+                        <span
+                          className="text-[9px] ml-1.5 px-1 py-0.5 rounded-full italic font-light shrink-0"
+                          style={{
+                            fontFamily: '"Onest", sans-serif',
+                            fontWeight: 300,
+                            color: '#6c7290',
+                            border: '1px solid #565c78',
+                          }}
+                        >
+                          {cleanItemWeight}
+                        </span>
                       )}
                     </div>
 
@@ -1558,13 +1608,13 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
                       style={{
                         background: `linear-gradient(to right, ${proc.colorStart}, ${proc.colorEnd})`,
                         borderTopRightRadius: '8px',
+                        fontFamily: '"Onest", sans-serif',
                       }}
                     >
                       {proc.badgeText}
                     </div>
                   </div>
 
-                  {/* Описание и кнопки управления */}
                   <div className="flex items-center justify-between pt-1 border-t border-slate-100 text-xs">
                     <button
                       type="button"
@@ -1593,7 +1643,6 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
       {isCatalogOpen && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-2xl w-full max-h-[85vh] shadow-2xl flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
-            {/* Шапка модалки */}
             <div className="p-5 border-b border-slate-100 flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl bg-teal-50 text-teal-600 flex items-center justify-center font-bold">
@@ -1617,7 +1666,6 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
               </button>
             </div>
 
-            {/* Поле поиска */}
             <div className="p-4 border-b border-slate-100 bg-slate-50/50">
               <div className="relative">
                 <Search className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
@@ -1632,7 +1680,6 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
               </div>
             </div>
 
-            {/* Список товаров */}
             <div className="p-4 overflow-y-auto space-y-2 flex-1 max-h-[50vh]">
               {filteredCatalogItems.length === 0 ? (
                 <div className="py-8 text-center text-slate-400 text-sm">
@@ -1649,7 +1696,7 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
                       className="w-full p-3 rounded-2xl border border-slate-200/80 hover:border-teal-400 hover:bg-teal-50/50 text-left transition flex items-center justify-between group cursor-pointer"
                     >
                       <div>
-                        <div className="font-bold text-slate-900 text-sm group-hover:text-teal-800">
+                        <div className="font-bold text-slate-900 text-sm group-hover:text-teal-800" style={{ fontFamily: '"Onest", sans-serif' }}>
                           {parsed.title} {parsed.description ? `(${parsed.description})` : ''}
                         </div>
                         <div className="flex items-center gap-2 mt-0.5 text-xs text-slate-500">
@@ -1659,7 +1706,7 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
                       </div>
 
                       <div className="text-right shrink-0">
-                        <span className="font-extrabold text-slate-900 text-sm group-hover:text-teal-700">
+                        <span className="font-extrabold text-slate-900 text-sm group-hover:text-teal-700" style={{ fontFamily: '"Onest", sans-serif' }}>
                           {item.price ? `${Math.round(item.price)} ₽` : '—'}
                         </span>
                       </div>
@@ -1669,7 +1716,6 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
               )}
             </div>
 
-            {/* Подвал модалки */}
             <div className="p-4 border-t border-slate-100 bg-slate-50 flex justify-end">
               <button
                 type="button"
@@ -1693,16 +1739,25 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
             }
             @page {
               size: A4 portrait;
-              margin: 8mm 6mm;
+              margin: 8mm 5mm;
             }
             header, nav, main > *:not(.print-price-tags-sheet), .print\\:block {
               display: none !important;
             }
             .print-price-tags-sheet {
               display: block !important;
-              width: 100% !important;
+              width: 200mm !important;
+              margin: 0 auto !important;
+            }
+            .print-tags-grid {
+              display: grid !important;
+              grid-template-columns: 100mm 100mm !important;
+              gap: 2.5mm 0mm !important;
+              justify-content: center !important;
             }
             .print-tag-card {
+              width: 100mm !important;
+              height: 60mm !important;
               page-break-inside: avoid;
               break-inside: avoid;
               box-sizing: border-box;
@@ -1713,11 +1768,7 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
         `}} />
 
         <div className="print-price-tags-sheet">
-          <div
-            className={`grid gap-3 ${
-              printCardsPerPage === 6 ? 'grid-cols-2' : 'grid-cols-2'
-            }`}
-          >
+          <div className="print-tags-grid grid grid-cols-2 gap-2 justify-center">
             {(printQueue.length > 0 ? printQueue : [currentTag]).map((tag, idx) => {
               const proc =
                 tag.processingType === 'CUSTOM'
@@ -1733,7 +1784,7 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
                   ? ''
                   : tag.textureMode === 'custom' && tag.customTextureUrl
                   ? tag.customTextureUrl
-                  : tag.textureMode === 'solid'
+                  : (tag.textureMode === 'solid' || tag.textureMode === 'solid_blue')
                   ? ''
                   : tag.textureMode === 'auto'
                   ? (tag.processingType === 'CUSTOM'
@@ -1742,13 +1793,17 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
                   : `/textures/${tag.textureMode}.jpg`;
 
               const isEco = printLayoutMode === 'eco';
+              const cleanItemWeight = formatWeightText(tag.weight);
+              const isItemSingleWord = !(tag.description || '').trim() && (tag.title || '').trim().split(/\s+/).length === 1;
 
               return (
                 <div
                   key={idx}
-                  className="print-tag-card relative w-full aspect-[1024/614] border border-slate-400 rounded-xl overflow-hidden"
+                  className="print-tag-card relative border border-slate-400 rounded-lg overflow-hidden"
                   style={{
-                    backgroundColor: isEco ? '#ffffff' : '#141b33',
+                    width: '100mm',
+                    height: '60mm',
+                    backgroundColor: isEco ? '#ffffff' : '#171d41',
                     backgroundImage: tagTexture ? `url(${tagTexture})` : 'none',
                     backgroundSize: 'cover',
                     backgroundPosition: 'center',
@@ -1760,15 +1815,14 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
                     className="absolute left-[4.8%] top-[5.5%] max-w-[90%]"
                     style={{
                       color: isEco ? '#000000' : '#ffffff',
-                      fontFamily:
-                        '-apple-system, BlinkMacSystemFont, "Montserrat", "Segoe UI", Arial, sans-serif',
+                      fontFamily: '"Onest", sans-serif',
                       fontStyle: tag.isItalic ? 'italic' : 'normal',
-                      fontWeight: 800,
+                      fontWeight: 700,
                       textTransform: 'uppercase',
-                      lineHeight: 1.15,
+                      lineHeight: 1.1,
                     }}
                   >
-                    <div className="text-[20px] tracking-tight">
+                    <div className={`tracking-tight ${isItemSingleWord ? 'text-[24px]' : 'text-[15px]'}`}>
                       <span>{tag.title}</span>
                       {tag.description && (
                         <span className="ml-2">
@@ -1787,31 +1841,39 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
                     </div>
                   </div>
 
-                  {/* Цена и вес */}
-                  <div className="absolute inset-0 flex items-center justify-center pl-[18%]">
-                    <div className="flex items-start justify-center">
-                      <span
-                        className="font-black tracking-tight"
+                  {/* Цена и вес у правого края (чуть ниже) */}
+                  <div
+                    className="absolute inset-x-0 bottom-0 top-[12%] flex items-center justify-end"
+                    style={{
+                      paddingRight: cleanItemWeight ? '1.5%' : '3.5%',
+                    }}
+                  >
+                    <div className="flex items-start justify-end">
+                      <div
+                        className="flex items-baseline font-black tracking-tight"
                         style={{
-                          fontSize: '56px',
+                          fontSize: '46px',
                           color: isEco ? '#000000' : '#ffffff',
-                          fontFamily:
-                            '-apple-system, BlinkMacSystemFont, "Montserrat", "Segoe UI", Arial, sans-serif',
+                          fontFamily: '"Onest", sans-serif',
                           lineHeight: 1,
                         }}
                       >
-                        {tag.price}
-                        {tag.currency}
-                      </span>
-                      {tag.weight && (
+                        <span>{tag.price}</span>
+                        <span style={{ marginLeft: '0.14em' }}>{tag.currency}</span>
+                      </div>
+                      {cleanItemWeight && (
                         <div
-                          className="ml-2 -mt-1 px-2 py-0.5 rounded-full border border-slate-400 font-bold"
+                          className="ml-2 -mt-1 px-2.5 py-0.5 rounded-full border italic flex items-center justify-center shrink-0"
                           style={{
-                            fontSize: '14px',
-                            color: isEco ? '#333333' : 'rgba(255, 255, 255, 0.85)',
+                            fontSize: '11px',
+                            borderWidth: '1px',
+                            borderColor: isEco ? '#94a3b8' : '#565c78',
+                            color: isEco ? '#64748b' : '#6c7290',
+                            fontFamily: '"Onest", sans-serif',
+                            fontWeight: 300,
                           }}
                         >
-                          {tag.weight.startsWith('(') ? tag.weight : `(${tag.weight})`}
+                          {cleanItemWeight}
                         </div>
                       )}
                     </div>
@@ -1825,12 +1887,11 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
                       minWidth: '26%',
                       paddingLeft: '3.5%',
                       paddingRight: '3.5%',
-                      borderTopRightRadius: '24px',
+                      borderTopRightRadius: '20px',
                       background: `linear-gradient(to right, ${proc.colorStart}, ${proc.colorEnd})`,
                       color: '#151b32',
-                      fontSize: '28px',
-                      fontFamily:
-                        '-apple-system, BlinkMacSystemFont, "Montserrat", "Arial Black", sans-serif',
+                      fontSize: '24px',
+                      fontFamily: '"Onest", sans-serif',
                       lineHeight: 1,
                     }}
                   >
@@ -1839,7 +1900,7 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
 
                   {/* Логотип ТопФиш */}
                   {tag.showLogo && (
-                    <div className="absolute right-[3.8%] bottom-[4.8%] w-[22%] max-w-[120px]">
+                    <div className="absolute right-[3.8%] bottom-[4.8%] w-[22%] max-w-[95px]">
                       <img
                         src="/Logo%20price.png"
                         alt="ТопФиш"
