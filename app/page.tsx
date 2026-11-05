@@ -101,6 +101,45 @@ export default function DashboardPage() {
       }
    }, [user, loading])
 
+   // Восстановление активной вкладки из localStorage при монтировании
+   useEffect(() => {
+      try {
+         const savedTab = localStorage.getItem('topfish_active_tab') as any
+         const validTabs = [
+            'main_plan',
+            'trial_novelties',
+            'clients',
+            'finance',
+            'tech_cards',
+            'stock_analytics',
+            'monthly_plan',
+            'inventory',
+            'freezer',
+            'price_tags',
+         ]
+         if (savedTab && validTabs.includes(savedTab)) {
+            setActiveTab(savedTab)
+         } else {
+            // Если вкладка не была сохранена, но есть активная сессия обзвона — сразу открываем обзвон
+            const savedSession = localStorage.getItem('topfish_calling_session')
+            if (savedSession) {
+               const parsed = JSON.parse(savedSession)
+               if (parsed?.isCallingSessionActive) {
+                  setActiveTab('clients')
+               }
+            }
+         }
+      } catch (e) {}
+   }, [])
+
+   // Автосохранение активной вкладки при переключении
+   useEffect(() => {
+      if (typeof window === 'undefined') return
+      try {
+         localStorage.setItem('topfish_active_tab', activeTab)
+      } catch (e) {}
+   }, [activeTab])
+
    // Загрузка настроек системы (авто-синхронизация с Прайсом)
    useEffect(() => {
       if (!user) return

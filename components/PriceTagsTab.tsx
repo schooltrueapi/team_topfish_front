@@ -416,7 +416,10 @@ export async function drawTagBackToCanvas(
    const maxTitleW = baseW - 240
    let fullTitle = titleText + (descText ? ` (${descText})` : '')
    if (ctx.measureText(fullTitle).width > maxTitleW) {
-      while (fullTitle.length > 5 && ctx.measureText(fullTitle + '...').width > maxTitleW) {
+      while (
+         fullTitle.length > 5 &&
+         ctx.measureText(fullTitle + '...').width > maxTitleW
+      ) {
          fullTitle = fullTitle.slice(0, -1).trim()
       }
       fullTitle += '...'
@@ -450,7 +453,13 @@ export async function drawTagBackToCanvas(
 
    // Огромные цифры кода
    const codeFontSize =
-      code.length <= 4 ? 200 : code.length <= 6 ? 160 : code.length <= 8 ? 120 : 90
+      code.length <= 4
+         ? 200
+         : code.length <= 6
+           ? 160
+           : code.length <= 8
+             ? 120
+             : 90
    ctx.font = `900 ${codeFontSize}px "Onest", sans-serif`
    ctx.fillStyle = '#0f172a'
    ctx.fillText(code, baseW / 2, baseH / 2 + 25)
@@ -506,7 +515,8 @@ export async function generatePriceTagsPdf(
    const numBatches = Math.max(1, Math.ceil(tags.length / tagsPerPage))
 
    const needFront = sideMode === 'both' || sideMode === 'front_only'
-   const needBack = (sideMode === 'both' || sideMode === 'back_only') && !!drawBackFn
+   const needBack =
+      (sideMode === 'both' || sideMode === 'back_only') && !!drawBackFn
 
    type RenderedImg = {
       bytes: Uint8Array
@@ -526,8 +536,14 @@ export async function generatePriceTagsPdf(
          const base64 = dataUrl.split(',')[1]
          const binaryStr = atob(base64)
          const bytes = new Uint8Array(binaryStr.length)
-         for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i)
-         frontImages.push({ bytes, widthPx: offCanvas.width, heightPx: offCanvas.height, objNum: 0 })
+         for (let i = 0; i < binaryStr.length; i++)
+            bytes[i] = binaryStr.charCodeAt(i)
+         frontImages.push({
+            bytes,
+            widthPx: offCanvas.width,
+            heightPx: offCanvas.height,
+            objNum: 0,
+         })
       }
    }
 
@@ -539,8 +555,14 @@ export async function generatePriceTagsPdf(
          const base64 = dataUrl.split(',')[1]
          const binaryStr = atob(base64)
          const bytes = new Uint8Array(binaryStr.length)
-         for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i)
-         backImages.push({ bytes, widthPx: offCanvas.width, heightPx: offCanvas.height, objNum: 0 })
+         for (let i = 0; i < binaryStr.length; i++)
+            bytes[i] = binaryStr.charCodeAt(i)
+         backImages.push({
+            bytes,
+            widthPx: offCanvas.width,
+            heightPx: offCanvas.height,
+            objNum: 0,
+         })
       }
    }
 
@@ -721,7 +743,8 @@ export async function generatePriceTagsWord(
    sideMode: 'both' | 'front_only' | 'back_only' = 'both'
 ): Promise<Blob> {
    const needFront = sideMode === 'both' || sideMode === 'front_only'
-   const needBack = (sideMode === 'both' || sideMode === 'back_only') && !!drawBackFn
+   const needBack =
+      (sideMode === 'both' || sideMode === 'back_only') && !!drawBackFn
 
    const frontImagesBase64: string[] = []
    const backImagesBase64: string[] = []
@@ -757,12 +780,14 @@ export async function generatePriceTagsWord(
             const idx1 = start + r * 2
             const idx2 = start + r * 2 + 1
 
-            const img1 = idx1 < start + count && frontImagesBase64[idx1]
-               ? `<img src="${frontImagesBase64[idx1]}" style="width:100mm; height:60mm; display:block;" width="378" height="227" alt="Ценник 10x6см" />`
-               : ''
-            const img2 = idx2 < start + count && frontImagesBase64[idx2]
-               ? `<img src="${frontImagesBase64[idx2]}" style="width:100mm; height:60mm; display:block;" width="378" height="227" alt="Ценник 10x6см" />`
-               : ''
+            const img1 =
+               idx1 < start + count && frontImagesBase64[idx1]
+                  ? `<img src="${frontImagesBase64[idx1]}" style="width:100mm; height:60mm; display:block;" width="378" height="227" alt="Ценник 10x6см" />`
+                  : ''
+            const img2 =
+               idx2 < start + count && frontImagesBase64[idx2]
+                  ? `<img src="${frontImagesBase64[idx2]}" style="width:100mm; height:60mm; display:block;" width="378" height="227" alt="Ценник 10x6см" />`
+                  : ''
 
             rowsHtml += `
             <tr style="height:60mm;">
@@ -790,12 +815,14 @@ export async function generatePriceTagsWord(
             const leftIdx = start + r * 2 + 1 // зеркально: справа налево
             const rightIdx = start + r * 2
 
-            const imgLeft = leftIdx < start + count && backImagesBase64[leftIdx]
-               ? `<img src="${backImagesBase64[leftIdx]}" style="width:100mm; height:60mm; display:block;" width="378" height="227" alt="Код для весов 10x6см" />`
-               : ''
-            const imgRight = rightIdx < start + count && backImagesBase64[rightIdx]
-               ? `<img src="${backImagesBase64[rightIdx]}" style="width:100mm; height:60mm; display:block;" width="378" height="227" alt="Код для весов 10x6см" />`
-               : ''
+            const imgLeft =
+               leftIdx < start + count && backImagesBase64[leftIdx]
+                  ? `<img src="${backImagesBase64[leftIdx]}" style="width:100mm; height:60mm; display:block;" width="378" height="227" alt="Код для весов 10x6см" />`
+                  : ''
+            const imgRight =
+               rightIdx < start + count && backImagesBase64[rightIdx]
+                  ? `<img src="${backImagesBase64[rightIdx]}" style="width:100mm; height:60mm; display:block;" width="378" height="227" alt="Код для весов 10x6см" />`
+                  : ''
 
             rowsHtml += `
             <tr style="height:60mm;">
@@ -1021,8 +1048,7 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
               }
             : PROCESSING_TYPES[tag.processingType]
 
-      const badgeScale =
-         (tag.badgeScale || TOPFISH_DEFAULTS.badgeScale) / 100
+      const badgeScale = (tag.badgeScale || TOPFISH_DEFAULTS.badgeScale) / 100
       const badgeH = Math.round(148 * badgeScale)
       const badgePaddingX = Math.round(46 * badgeScale)
       ctx.font = `900 ${Math.round(82 * badgeScale)}px "Onest", sans-serif`
@@ -1103,8 +1129,7 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
       const descText = (tag.description || '').trim().toUpperCase()
 
       let fontSize =
-         tag.titleFontSize ||
-         computeDynamicTitleFontSize(titleText, descText)
+         tag.titleFontSize || computeDynamicTitleFontSize(titleText, descText)
 
       const titleOffsetY =
          tag.titleOffsetY !== undefined
@@ -1738,22 +1763,30 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
                   </button>
 
                   <div className='flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-100 border border-slate-200 text-xs shadow-2xs'>
-                      <FlipHorizontal className='w-4 h-4 text-teal-700 shrink-0' />
-                      <span className='font-bold text-slate-700 hidden sm:inline'>Печать:</span>
-                      <select
-                         value={printSideMode}
-                         onChange={(e) => setPrintSideMode(e.target.value as any)}
-                         className='bg-white font-bold text-slate-800 text-xs px-2.5 py-1 rounded-lg border border-slate-300 focus:outline-teal-500 cursor-pointer'
-                         title='Режим печати (лицевая сторона и/или оборотная с крупными кодами для весов)'
-                      >
-                         <option value='both'>Лицо + Оборот (коды весов)</option>
-                         <option value='front_only'>Только лицо (1-сторонняя)</option>
-                         <option value='back_only'>Только коды весов (оборот)</option>
-                      </select>
-                   </div>
+                     <FlipHorizontal className='w-4 h-4 text-teal-700 shrink-0' />
+                     <span className='font-bold text-slate-700 hidden sm:inline'>
+                        Печать:
+                     </span>
+                     <select
+                        value={printSideMode}
+                        onChange={(e) =>
+                           setPrintSideMode(e.target.value as any)
+                        }
+                        className='bg-white font-bold text-slate-800 text-xs px-2.5 py-1 rounded-lg border border-slate-300 focus:outline-teal-500 cursor-pointer'
+                        title='Режим печати (лицевая сторона и/или оборотная с крупными кодами для весов)'
+                     >
+                        <option value='both'>Лицо + Оборот (коды весов)</option>
+                        <option value='front_only'>
+                           Только лицо (1-сторонняя)
+                        </option>
+                        <option value='back_only'>
+                           Только коды весов (оборот)
+                        </option>
+                     </select>
+                  </div>
 
-                   <button
-                      type='button'
+                  <button
+                     type='button'
                      onClick={() => handleDownloadPNG(1)}
                      className='px-3.5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs sm:text-sm font-bold transition flex items-center gap-2 shadow-xs cursor-pointer'
                   >
@@ -2214,7 +2247,8 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
                            />
                         </div>
                         <span className='text-[10px] text-slate-400 mt-1 block'>
-                           Печатается крупными цифрами на оборотной стороне ценника (для ввода на весах при взвешивании)
+                           Печатается крупными цифрами на оборотной стороне
+                           ценника (для ввода на весах при взвешивании)
                         </span>
                      </div>
 
@@ -2413,178 +2447,184 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
                      {/* САМА КАРТОЧКА ЦЕННИКА (Шрифт Onest, 100% точное соответствие с Canvas и печатью, 10см х 6см) */}
                      <div className='w-full overflow-hidden rounded-2xl shadow-xl shadow-slate-900/10 border border-slate-300/80 bg-slate-900'>
                         {previewSide === 'front' ? (
-                        <div
-                           ref={previewCardRef}
-                           className='relative w-full aspect-[10/6] select-none overflow-hidden'
-                           style={{
-                              containerType: 'inline-size',
-                              backgroundColor: '#171d41',
-                              backgroundImage: activeTextureUrl
-                                 ? `url(${activeTextureUrl})`
-                                 : 'none',
-                              backgroundSize: 'cover',
-                              backgroundPosition: 'center',
-                           }}
-                        >
-                           {/* 1. Верхний текст: Название и Описание */}
                            <div
-                              className='absolute left-[4.8%] top-[5.5%] max-w-[90%] text-white select-none'
+                              ref={previewCardRef}
+                              className='relative w-full aspect-[10/6] select-none overflow-hidden'
                               style={{
-                                 fontFamily: '"Onest", sans-serif',
-                                 fontStyle: currentTag.isItalic
-                                    ? 'italic'
-                                    : 'normal',
-                                 fontWeight: 700,
-                                 textTransform: 'uppercase',
-                                 lineHeight: 1.08,
-                                 fontSize: pxToCqi(effectiveTitleFontSize),
-                                 transform: `translate(${pxToCqi(currentTag.titleOffsetX !== undefined ? currentTag.titleOffsetX : TOPFISH_DEFAULTS.titleOffsetX)}, ${pxToCqi(currentTag.titleOffsetY !== undefined ? currentTag.titleOffsetY : TOPFISH_DEFAULTS.titleOffsetY)})`,
-                                 padding: '0.4% 0.8%',
-                                 maxWidth: '90.4%',
-                                 wordBreak: 'break-word',
-                                 overflowWrap: 'anywhere',
+                                 containerType: 'inline-size',
+                                 backgroundColor: '#171d41',
+                                 backgroundImage: activeTextureUrl
+                                    ? `url(${activeTextureUrl})`
+                                    : 'none',
+                                 backgroundSize: 'cover',
+                                 backgroundPosition: 'center',
                               }}
                            >
-                              <div className='tracking-tight'>
-                                 <span>
-                                    {currentTag.title || 'НАЗВАНИЕ ТОВАРА'}
-                                 </span>
-                                 {currentTag.description && (
-                                    <>
-                                       {' '}
-                                       <span>
-                                          (
-                                          <span
-                                             style={{
-                                                textDecoration:
-                                                   currentTag.underlineDescription
-                                                      ? 'underline'
-                                                      : 'none',
-                                                textUnderlineOffset: '0.08em',
-                                                textDecorationThickness:
-                                                   '0.05em',
-                                             }}
-                                          >
-                                             {currentTag.description}
-                                          </span>
-                                          )
-                                       </span>
-                                    </>
-                                 )}
-                              </div>
-                           </div>
-
-                           {/* 2. ЦЕНА И ВЕС СПРАВА */}
-                           <div
-                              className='absolute inset-x-0 bottom-0 top-[12%] flex items-center justify-end pointer-events-none'
-                              style={{
-                                 paddingRight: cleanWeightText
-                                    ? '1.4%'
-                                    : '3.5%',
-                              }}
-                           >
+                              {/* 1. Верхний текст: Название и Описание */}
                               <div
-                                 className='flex items-start justify-end pointer-events-auto'
+                                 className='absolute left-[4.8%] top-[5.5%] max-w-[90%] text-white select-none'
                                  style={{
-                                    transform: `translate(${pxToCqi(currentTag.priceOffsetX !== undefined ? currentTag.priceOffsetX : TOPFISH_DEFAULTS.priceOffsetX)}, ${pxToCqi(currentTag.priceOffsetY !== undefined ? currentTag.priceOffsetY : TOPFISH_DEFAULTS.priceOffsetY)})`,
+                                    fontFamily: '"Onest", sans-serif',
+                                    fontStyle: currentTag.isItalic
+                                       ? 'italic'
+                                       : 'normal',
+                                    fontWeight: 700,
+                                    textTransform: 'uppercase',
+                                    lineHeight: 1.08,
+                                    fontSize: pxToCqi(effectiveTitleFontSize),
+                                    transform: `translate(${pxToCqi(currentTag.titleOffsetX !== undefined ? currentTag.titleOffsetX : TOPFISH_DEFAULTS.titleOffsetX)}, ${pxToCqi(currentTag.titleOffsetY !== undefined ? currentTag.titleOffsetY : TOPFISH_DEFAULTS.titleOffsetY)})`,
+                                    padding: '0.4% 0.8%',
+                                    maxWidth: '90.4%',
+                                    wordBreak: 'break-word',
+                                    overflowWrap: 'anywhere',
                                  }}
                               >
-                                 {/* Блок цены */}
+                                 <div className='tracking-tight'>
+                                    <span>
+                                       {currentTag.title || 'НАЗВАНИЕ ТОВАРА'}
+                                    </span>
+                                    {currentTag.description && (
+                                       <>
+                                          {' '}
+                                          <span>
+                                             (
+                                             <span
+                                                style={{
+                                                   textDecoration:
+                                                      currentTag.underlineDescription
+                                                         ? 'underline'
+                                                         : 'none',
+                                                   textUnderlineOffset:
+                                                      '0.08em',
+                                                   textDecorationThickness:
+                                                      '0.05em',
+                                                }}
+                                             >
+                                                {currentTag.description}
+                                             </span>
+                                             )
+                                          </span>
+                                       </>
+                                    )}
+                                 </div>
+                              </div>
+
+                              {/* 2. ЦЕНА И ВЕС СПРАВА */}
+                              <div
+                                 className='absolute inset-x-0 bottom-0 top-[12%] flex items-center justify-end pointer-events-none'
+                                 style={{
+                                    paddingRight: cleanWeightText
+                                       ? '1.4%'
+                                       : '3.5%',
+                                 }}
+                              >
                                  <div
-                                    className='flex items-baseline text-white font-black px-2 py-0.5 select-none'
+                                    className='flex items-start justify-end pointer-events-auto'
                                     style={{
-                                       fontFamily: '"Onest", sans-serif',
-                                       fontSize: pxToCqi(
-                                          effectivePriceFontSize
-                                       ),
-                                       lineHeight: 1,
+                                       transform: `translate(${pxToCqi(currentTag.priceOffsetX !== undefined ? currentTag.priceOffsetX : TOPFISH_DEFAULTS.priceOffsetX)}, ${pxToCqi(currentTag.priceOffsetY !== undefined ? currentTag.priceOffsetY : TOPFISH_DEFAULTS.priceOffsetY)})`,
                                     }}
                                  >
-                                    <span>{currentTag.price || '0'}</span>
-                                    <span
+                                    {/* Блок цены */}
+                                    <div
+                                       className='flex items-baseline text-white font-black px-2 py-0.5 select-none'
                                        style={{
-                                          marginLeft: '0.14em', // Гарантированный зазор перед символом ₽!
+                                          fontFamily: '"Onest", sans-serif',
+                                          fontSize: pxToCqi(
+                                             effectivePriceFontSize
+                                          ),
+                                          lineHeight: 1,
                                        }}
                                     >
-                                       {currentTag.currency || '₽'}
-                                    </span>
-                                 </div>
-
-                                 {/* ВЕС СПРАВА ОТ ЦЕНЫ СВЕРХУ - КАПСУЛА */}
-                                 {cleanWeightText && (() => {
-                                    const weightStyles = getWeightColors(
-                                       currentTag.weightBrightness !== undefined
-                                          ? currentTag.weightBrightness
-                                          : TOPFISH_DEFAULTS.weightBrightness,
-                                       false
-                                    )
-                                    return (
-                                       <div
-                                          className='ml-1.5 sm:ml-2.5 -mt-0.5 sm:-mt-1 rounded-full italic tracking-wide flex items-center justify-center shrink-0 select-none'
+                                       <span>{currentTag.price || '0'}</span>
+                                       <span
                                           style={{
-                                             fontSize: pxToCqi(
-                                                effectiveWeightFontSize
-                                             ),
-                                             lineHeight: 1.1,
-                                             fontFamily: '"Onest", sans-serif',
-                                             fontWeight:
-                                                weightStyles.fontWeight,
-                                             color: weightStyles.color,
-                                             border: `1px solid ${weightStyles.borderColor}`,
-                                             padding: `${pxToCqi(Math.round(effectiveWeightFontSize * 0.18))} ${pxToCqi(Math.round(effectiveWeightFontSize * 0.52))}`,
-                                             transform: `translate(${pxToCqi(currentTag.weightOffsetX !== undefined ? currentTag.weightOffsetX : TOPFISH_DEFAULTS.weightOffsetX)}, ${pxToCqi(currentTag.weightOffsetY !== undefined ? currentTag.weightOffsetY : TOPFISH_DEFAULTS.weightOffsetY)})`,
+                                             marginLeft: '0.14em', // Гарантированный зазор перед символом ₽!
                                           }}
                                        >
-                                          {cleanWeightText}
-                                       </div>
-                                    )
-                                 })()}
+                                          {currentTag.currency || '₽'}
+                                       </span>
+                                    </div>
+
+                                    {/* ВЕС СПРАВА ОТ ЦЕНЫ СВЕРХУ - КАПСУЛА */}
+                                    {cleanWeightText &&
+                                       (() => {
+                                          const weightStyles = getWeightColors(
+                                             currentTag.weightBrightness !==
+                                                undefined
+                                                ? currentTag.weightBrightness
+                                                : TOPFISH_DEFAULTS.weightBrightness,
+                                             false
+                                          )
+                                          return (
+                                             <div
+                                                className='ml-1.5 sm:ml-2.5 -mt-0.5 sm:-mt-1 rounded-full italic tracking-wide flex items-center justify-center shrink-0 select-none'
+                                                style={{
+                                                   fontSize: pxToCqi(
+                                                      effectiveWeightFontSize
+                                                   ),
+                                                   lineHeight: 1.1,
+                                                   fontFamily:
+                                                      '"Onest", sans-serif',
+                                                   fontWeight:
+                                                      weightStyles.fontWeight,
+                                                   color: weightStyles.color,
+                                                   border: `1px solid ${weightStyles.borderColor}`,
+                                                   padding: `${pxToCqi(Math.round(effectiveWeightFontSize * 0.18))} ${pxToCqi(Math.round(effectiveWeightFontSize * 0.52))}`,
+                                                   transform: `translate(${pxToCqi(currentTag.weightOffsetX !== undefined ? currentTag.weightOffsetX : TOPFISH_DEFAULTS.weightOffsetX)}, ${pxToCqi(currentTag.weightOffsetY !== undefined ? currentTag.weightOffsetY : TOPFISH_DEFAULTS.weightOffsetY)})`,
+                                                }}
+                                             >
+                                                {cleanWeightText}
+                                             </div>
+                                          )
+                                       })()}
+                                 </div>
                               </div>
-                           </div>
 
-                           {/* 3. ШИЛЬДИК ОБРАБОТКИ В ЛЕВОМ НИЖНЕМ УГЛУ */}
-                           <div
-                              className='absolute left-0 bottom-0 flex items-center justify-center font-black origin-bottom-left select-none'
-                              style={{
-                                 height: '24%',
-                                 minWidth: '26%',
-                                 paddingLeft: '3.5%',
-                                 paddingRight: '3.5%',
-                                 borderTopRightRadius: '32px',
-                                 background: `linear-gradient(to right, ${currentProcConfig.colorStart}, ${currentProcConfig.colorEnd})`,
-                                 color: '#151b32',
-                                 fontSize: pxToCqi(
-                                    Math.round(
-                                       82 *
-                                          ((currentTag.badgeScale || TOPFISH_DEFAULTS.badgeScale) / 100)
-                                    )
-                                 ),
-                                 fontFamily: '"Onest", sans-serif',
-                                 lineHeight: 1,
-                                 transform: `scale(${(currentTag.badgeScale || TOPFISH_DEFAULTS.badgeScale) / 100})`,
-                                 transformOrigin: 'bottom left',
-                              }}
-                           >
-                              {currentProcConfig.badgeText}
-                           </div>
-
-                           {/* 4. ЛОГОТИП ТОПФИШ В ПРАВОМ НИЖНЕМ УГЛУ */}
-                           {currentTag.showLogo && (
+                              {/* 3. ШИЛЬДИК ОБРАБОТКИ В ЛЕВОМ НИЖНЕМ УГЛУ */}
                               <div
-                                 className='absolute right-[3.6%] bottom-[4.8%] w-[23%] max-w-[240px] origin-bottom-right'
+                                 className='absolute left-0 bottom-0 flex items-center justify-center font-black origin-bottom-left select-none'
                                  style={{
-                                    transform: `scale(${(currentTag.logoScale || TOPFISH_DEFAULTS.logoScale) / 100})`,
-                                    transformOrigin: 'bottom right',
+                                    height: '24%',
+                                    minWidth: '26%',
+                                    paddingLeft: '3.5%',
+                                    paddingRight: '3.5%',
+                                    borderTopRightRadius: '32px',
+                                    background: `linear-gradient(to right, ${currentProcConfig.colorStart}, ${currentProcConfig.colorEnd})`,
+                                    color: '#151b32',
+                                    fontSize: pxToCqi(
+                                       Math.round(
+                                          82 *
+                                             ((currentTag.badgeScale ||
+                                                TOPFISH_DEFAULTS.badgeScale) /
+                                                100)
+                                       )
+                                    ),
+                                    fontFamily: '"Onest", sans-serif',
+                                    lineHeight: 1,
+                                    transform: `scale(${(currentTag.badgeScale || TOPFISH_DEFAULTS.badgeScale) / 100})`,
+                                    transformOrigin: 'bottom left',
                                  }}
                               >
-                                 <img
-                                    src='/Logo%20price.png'
-                                    alt='ТопФиш Копченая рыба'
-                                    className='w-full h-auto object-contain drop-shadow-sm pointer-events-none'
-                                 />
+                                 {currentProcConfig.badgeText}
                               </div>
-                           )}
-                        </div>
+
+                              {/* 4. ЛОГОТИП ТОПФИШ В ПРАВОМ НИЖНЕМ УГЛУ */}
+                              {currentTag.showLogo && (
+                                 <div
+                                    className='absolute right-[3.6%] bottom-[4.8%] w-[23%] max-w-[240px] origin-bottom-right'
+                                    style={{
+                                       transform: `scale(${(currentTag.logoScale || TOPFISH_DEFAULTS.logoScale) / 100})`,
+                                       transformOrigin: 'bottom right',
+                                    }}
+                                 >
+                                    <img
+                                       src='/Logo%20price.png'
+                                       alt='ТопФиш Копченая рыба'
+                                       className='w-full h-auto object-contain drop-shadow-sm pointer-events-none'
+                                    />
+                                 </div>
+                              )}
+                           </div>
                         ) : (
                            <div
                               ref={previewCardRef}
@@ -2600,7 +2640,9 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
                                     className='font-bold text-slate-800 uppercase tracking-tight truncate max-w-[75%]'
                                     style={{ fontSize: '3.6cqi' }}
                                  >
-                                    <span>{currentTag.title || 'НАЗВАНИЕ ТОВАРА'}</span>
+                                    <span>
+                                       {currentTag.title || 'НАЗВАНИЕ ТОВАРА'}
+                                    </span>
                                     {currentTag.description && (
                                        <span className='text-slate-500 font-semibold ml-1.5'>
                                           ({currentTag.description})
@@ -2627,9 +2669,11 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
                                     className='font-black text-slate-900 tracking-wider leading-none select-all'
                                     style={{
                                        fontSize:
-                                          (currentTag.productCode || '').length <= 4
+                                          (currentTag.productCode || '')
+                                             .length <= 4
                                              ? '19cqi'
-                                             : (currentTag.productCode || '').length <= 6
+                                             : (currentTag.productCode || '')
+                                                    .length <= 6
                                                ? '15cqi'
                                                : '11cqi',
                                     }}
@@ -2651,7 +2695,8 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
                                     style={{ fontSize: '3.4cqi' }}
                                  >
                                     <span>
-                                       {currentTag.price} {currentTag.currency || '₽'}
+                                       {currentTag.price}{' '}
+                                       {currentTag.currency || '₽'}
                                     </span>
                                     {cleanWeightText && (
                                        <span className='text-slate-500 font-semibold'>
@@ -2815,19 +2860,25 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
 
                      <div className='flex items-center gap-4'>
                         <div className='flex items-center gap-2 mr-2'>
-                        <span className='text-slate-400'>Печать:</span>
-                        <select
-                           value={printSideMode}
-                           onChange={(e) => setPrintSideMode(e.target.value as any)}
-                           className='bg-white font-bold text-slate-800 text-xs px-2 py-1 rounded-lg border border-slate-300 focus:outline-teal-500 cursor-pointer'
-                        >
-                           <option value='both'>Лицо + Оборот (коды весов)</option>
-                           <option value='front_only'>Только лицо</option>
-                           <option value='back_only'>Только коды весов (оборот)</option>
-                        </select>
-                     </div>
+                           <span className='text-slate-400'>Печать:</span>
+                           <select
+                              value={printSideMode}
+                              onChange={(e) =>
+                                 setPrintSideMode(e.target.value as any)
+                              }
+                              className='bg-white font-bold text-slate-800 text-xs px-2 py-1 rounded-lg border border-slate-300 focus:outline-teal-500 cursor-pointer'
+                           >
+                              <option value='both'>
+                                 Лицо + Оборот (коды весов)
+                              </option>
+                              <option value='front_only'>Только лицо</option>
+                              <option value='back_only'>
+                                 Только коды весов (оборот)
+                              </option>
+                           </select>
+                        </div>
 
-                     <span className='text-slate-400'>
+                        <span className='text-slate-400'>
                            Режим расхода краски:
                         </span>
                         <label className='flex items-center gap-1.5 cursor-pointer'>
@@ -3036,32 +3087,36 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
                                           </span>
                                        </div>
 
-                                       {cleanItemWeight && (() => {
-                                          const weightStyles = getWeightColors(
-                                             itemWeightBrightness,
-                                             false
-                                          )
-                                          return (
-                                             <div
-                                                className='ml-1.5 -mt-0.5 rounded-full italic tracking-wide flex items-center justify-center shrink-0'
-                                                style={{
-                                                   fontSize:
-                                                      pxToCqi(itemWeightFontSize),
-                                                   lineHeight: 1.1,
-                                                   fontFamily:
-                                                      '"Onest", sans-serif',
-                                                   fontWeight:
-                                                      weightStyles.fontWeight,
-                                                   color: weightStyles.color,
-                                                   border: `1px solid ${weightStyles.borderColor}`,
-                                                   padding: `${pxToCqi(Math.round(itemWeightFontSize * 0.18))} ${pxToCqi(Math.round(itemWeightFontSize * 0.52))}`,
-                                                   transform: `translate(${pxToCqi(itemWeightOffsetX)}, ${pxToCqi(itemWeightOffsetY)})`,
-                                                }}
-                                             >
-                                                {cleanItemWeight}
-                                             </div>
-                                          )
-                                       })()}
+                                       {cleanItemWeight &&
+                                          (() => {
+                                             const weightStyles =
+                                                getWeightColors(
+                                                   itemWeightBrightness,
+                                                   false
+                                                )
+                                             return (
+                                                <div
+                                                   className='ml-1.5 -mt-0.5 rounded-full italic tracking-wide flex items-center justify-center shrink-0'
+                                                   style={{
+                                                      fontSize:
+                                                         pxToCqi(
+                                                            itemWeightFontSize
+                                                         ),
+                                                      lineHeight: 1.1,
+                                                      fontFamily:
+                                                         '"Onest", sans-serif',
+                                                      fontWeight:
+                                                         weightStyles.fontWeight,
+                                                      color: weightStyles.color,
+                                                      border: `1px solid ${weightStyles.borderColor}`,
+                                                      padding: `${pxToCqi(Math.round(itemWeightFontSize * 0.18))} ${pxToCqi(Math.round(itemWeightFontSize * 0.52))}`,
+                                                      transform: `translate(${pxToCqi(itemWeightOffsetX)}, ${pxToCqi(itemWeightOffsetY)})`,
+                                                   }}
+                                                >
+                                                   {cleanItemWeight}
+                                                </div>
+                                             )
+                                          })()}
                                     </div>
                                  </div>
 
@@ -3078,8 +3133,7 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
                                        color: '#151b32',
                                        fontSize: pxToCqi(
                                           Math.round(
-                                             82 *
-                                                (itemBadgeScale / 100)
+                                             82 * (itemBadgeScale / 100)
                                           )
                                        ),
                                        fontFamily: '"Onest", sans-serif',
@@ -3355,22 +3409,33 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
 
                   for (let b = 0; b < numBatches; b++) {
                      const start = b * tagsPerPage
-                     const count = Math.min(tagsPerPage, targetTags.length - start)
+                     const count = Math.min(
+                        tagsPerPage,
+                        targetTags.length - start
+                     )
                      const batchTags = targetTags.slice(start, start + count)
 
                      // 1. Лицевая сторона (до 8 карточек на листе А4)
                      if (needFront) {
                         pages.push(
-                           <div key={'front_page_' + b} className='print-page-wrapper'>
+                           <div
+                              key={'front_page_' + b}
+                              className='print-page-wrapper'
+                           >
                               <div className='print-tags-grid grid grid-cols-2 gap-2 justify-center'>
                                  {batchTags.map((tag, tagIdx) => {
                                     const proc =
                                        tag.processingType === 'CUSTOM'
                                           ? {
-                                               badgeText: tag.customProcessingText || 'ТОП',
+                                               badgeText:
+                                                  tag.customProcessingText ||
+                                                  'ТОП',
                                                colorStart:
-                                                  tag.customColorStart || '#2b81b0',
-                                               colorEnd: tag.customColorEnd || '#a9e1ff',
+                                                  tag.customColorStart ||
+                                                  '#2b81b0',
+                                               colorEnd:
+                                                  tag.customColorEnd ||
+                                                  '#a9e1ff',
                                             }
                                           : PROCESSING_TYPES[tag.processingType]
 
@@ -3384,14 +3449,20 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
                                                 tag.textureMode === 'solid_blue'
                                               ? ''
                                               : tag.textureMode === 'auto'
-                                                ? tag.processingType === 'CUSTOM'
+                                                ? tag.processingType ===
+                                                  'CUSTOM'
                                                    ? '/textures/xk.jpg'
-                                                   : PROCESSING_TYPES[tag.processingType]
-                                                        .textureUrl
-                                                : '/textures/' + tag.textureMode + '.jpg'
+                                                   : PROCESSING_TYPES[
+                                                        tag.processingType
+                                                     ].textureUrl
+                                                : '/textures/' +
+                                                  tag.textureMode +
+                                                  '.jpg'
 
                                     const isEco = printLayoutMode === 'eco'
-                                    const cleanItemWeight = formatWeightText(tag.weight)
+                                    const cleanItemWeight = formatWeightText(
+                                       tag.weight
+                                    )
                                     const printScale = 0.369 // 100mm / 1024px ≈ 0.369px per base px на листе печати А4
                                     const printTitleFontSize = Math.round(
                                        (tag.titleFontSize ||
@@ -3402,51 +3473,61 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
                                     )
                                     const printPriceFontSize = Math.round(
                                        (tag.priceFontSize ||
-                                          computeDynamicPriceFontSize(tag.price)) *
-                                          printScale
+                                          computeDynamicPriceFontSize(
+                                             tag.price
+                                          )) * printScale
                                     )
                                     const printWeightFontSize = Math.round(
                                        (tag.weightFontSize ||
-                                          TOPFISH_DEFAULTS.weightFontSize) * printScale
+                                          TOPFISH_DEFAULTS.weightFontSize) *
+                                          printScale
                                     )
                                     const printTitleOffsetY = Math.round(
                                        (tag.titleOffsetY !== undefined
                                           ? tag.titleOffsetY
-                                          : TOPFISH_DEFAULTS.titleOffsetY) * printScale
+                                          : TOPFISH_DEFAULTS.titleOffsetY) *
+                                          printScale
                                     )
                                     const printTitleOffsetX = Math.round(
                                        (tag.titleOffsetX !== undefined
                                           ? tag.titleOffsetX
-                                          : TOPFISH_DEFAULTS.titleOffsetX) * printScale
+                                          : TOPFISH_DEFAULTS.titleOffsetX) *
+                                          printScale
                                     )
                                     const printPriceOffsetY = Math.round(
                                        (tag.priceOffsetY !== undefined
                                           ? tag.priceOffsetY
-                                          : TOPFISH_DEFAULTS.priceOffsetY) * printScale
+                                          : TOPFISH_DEFAULTS.priceOffsetY) *
+                                          printScale
                                     )
                                     const printPriceOffsetX = Math.round(
                                        (tag.priceOffsetX !== undefined
                                           ? tag.priceOffsetX
-                                          : TOPFISH_DEFAULTS.priceOffsetX) * printScale
+                                          : TOPFISH_DEFAULTS.priceOffsetX) *
+                                          printScale
                                     )
                                     const printWeightOffsetY = Math.round(
                                        (tag.weightOffsetY !== undefined
                                           ? tag.weightOffsetY
-                                          : TOPFISH_DEFAULTS.weightOffsetY) * printScale
+                                          : TOPFISH_DEFAULTS.weightOffsetY) *
+                                          printScale
                                     )
                                     const printWeightOffsetX = Math.round(
                                        (tag.weightOffsetX !== undefined
                                           ? tag.weightOffsetX
-                                          : TOPFISH_DEFAULTS.weightOffsetX) * printScale
+                                          : TOPFISH_DEFAULTS.weightOffsetX) *
+                                          printScale
                                     )
                                     const printWeightBrightness =
                                        tag.weightBrightness !== undefined
                                           ? tag.weightBrightness
                                           : TOPFISH_DEFAULTS.weightBrightness
                                     const printBadgeScale =
-                                       (tag.badgeScale || TOPFISH_DEFAULTS.badgeScale) / 100
+                                       (tag.badgeScale ||
+                                          TOPFISH_DEFAULTS.badgeScale) / 100
                                     const printLogoScale =
-                                       (tag.logoScale || TOPFISH_DEFAULTS.logoScale) / 100
+                                       (tag.logoScale ||
+                                          TOPFISH_DEFAULTS.logoScale) / 100
 
                                     return (
                                        <div
@@ -3455,29 +3536,42 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
                                           style={{
                                              width: '100mm',
                                              height: '60mm',
-                                             backgroundColor: isEco ? '#ffffff' : '#171d41',
+                                             backgroundColor: isEco
+                                                ? '#ffffff'
+                                                : '#171d41',
                                              backgroundImage: tagTexture
                                                 ? 'url(' + tagTexture + ')'
                                                 : 'none',
                                              backgroundSize: 'cover',
                                              backgroundPosition: 'center',
-                                             color: isEco ? '#000000' : '#ffffff',
+                                             color: isEco
+                                                ? '#000000'
+                                                : '#ffffff',
                                           }}
                                        >
                                           {/* Название и описание */}
                                           <div
                                              className='absolute left-[4.8%] top-[5.5%] max-w-[90%]'
                                              style={{
-                                                color: isEco ? '#000000' : '#ffffff',
-                                                fontFamily: '"Onest", sans-serif',
+                                                color: isEco
+                                                   ? '#000000'
+                                                   : '#ffffff',
+                                                fontFamily:
+                                                   '"Onest", sans-serif',
                                                 fontStyle: tag.isItalic
                                                    ? 'italic'
                                                    : 'normal',
                                                 fontWeight: 700,
                                                 textTransform: 'uppercase',
                                                 lineHeight: 1.06,
-                                                fontSize: printTitleFontSize + 'px',
-                                                transform: 'translate(' + printTitleOffsetX + 'px, ' + printTitleOffsetY + 'px)',
+                                                fontSize:
+                                                   printTitleFontSize + 'px',
+                                                transform:
+                                                   'translate(' +
+                                                   printTitleOffsetX +
+                                                   'px, ' +
+                                                   printTitleOffsetY +
+                                                   'px)',
                                                 maxWidth: '90.4%',
                                                 wordBreak: 'break-word',
                                                 overflowWrap: 'anywhere',
@@ -3496,7 +3590,8 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
                                                                   tag.underlineDescription
                                                                      ? 'underline'
                                                                      : 'none',
-                                                               textUnderlineOffset: '3px',
+                                                               textUnderlineOffset:
+                                                                  '3px',
                                                             }}
                                                          >
                                                             {tag.description}
@@ -3520,48 +3615,72 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
                                              <div
                                                 className='flex items-start justify-end'
                                                 style={{
-                                                   transform: 'translate(' + printPriceOffsetX + 'px, ' + printPriceOffsetY + 'px)',
+                                                   transform:
+                                                      'translate(' +
+                                                      printPriceOffsetX +
+                                                      'px, ' +
+                                                      printPriceOffsetY +
+                                                      'px)',
                                                 }}
                                              >
                                                 <div
                                                    className='flex items-baseline font-black tracking-tight'
                                                    style={{
-                                                      fontSize: printPriceFontSize + 'px',
-                                                      color: isEco ? '#000000' : '#ffffff',
-                                                      fontFamily: '"Onest", sans-serif',
+                                                      fontSize:
+                                                         printPriceFontSize +
+                                                         'px',
+                                                      color: isEco
+                                                         ? '#000000'
+                                                         : '#ffffff',
+                                                      fontFamily:
+                                                         '"Onest", sans-serif',
                                                       lineHeight: 1,
                                                    }}
                                                 >
                                                    <span>{tag.price}</span>
-                                                   <span style={{ marginLeft: '0.14em' }}>
+                                                   <span
+                                                      style={{
+                                                         marginLeft: '0.14em',
+                                                      }}
+                                                   >
                                                       {tag.currency}
                                                    </span>
                                                 </div>
-                                                {cleanItemWeight && (() => {
-                                                   const weightStyles = getWeightColors(
-                                                      printWeightBrightness,
-                                                      isEco
-                                                   )
-                                                   return (
-                                                      <div
-                                                         className='ml-2 -mt-1 px-2.5 py-0.5 rounded-full border italic flex items-center justify-center shrink-0'
-                                                         style={{
-                                                            fontSize: printWeightFontSize + 'px',
-                                                            borderWidth: '1px',
-                                                            borderColor:
-                                                               weightStyles.borderColor,
-                                                            color: weightStyles.color,
-                                                            fontFamily:
-                                                               '"Onest", sans-serif',
-                                                            fontWeight:
-                                                               weightStyles.fontWeight,
-                                                            transform: 'translate(' + printWeightOffsetX + 'px, ' + printWeightOffsetY + 'px)',
-                                                         }}
-                                                      >
-                                                         {cleanItemWeight}
-                                                      </div>
-                                                   )
-                                                })()}
+                                                {cleanItemWeight &&
+                                                   (() => {
+                                                      const weightStyles =
+                                                         getWeightColors(
+                                                            printWeightBrightness,
+                                                            isEco
+                                                         )
+                                                      return (
+                                                         <div
+                                                            className='ml-2 -mt-1 px-2.5 py-0.5 rounded-full border italic flex items-center justify-center shrink-0'
+                                                            style={{
+                                                               fontSize:
+                                                                  printWeightFontSize +
+                                                                  'px',
+                                                               borderWidth:
+                                                                  '1px',
+                                                               borderColor:
+                                                                  weightStyles.borderColor,
+                                                               color: weightStyles.color,
+                                                               fontFamily:
+                                                                  '"Onest", sans-serif',
+                                                               fontWeight:
+                                                                  weightStyles.fontWeight,
+                                                               transform:
+                                                                  'translate(' +
+                                                                  printWeightOffsetX +
+                                                                  'px, ' +
+                                                                  printWeightOffsetY +
+                                                                  'px)',
+                                                            }}
+                                                         >
+                                                            {cleanItemWeight}
+                                                         </div>
+                                                      )
+                                                   })()}
                                              </div>
                                           </div>
 
@@ -3574,12 +3693,24 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
                                                 paddingLeft: '3.5%',
                                                 paddingRight: '3.5%',
                                                 borderTopRightRadius: '20px',
-                                                background: 'linear-gradient(to right, ' + proc.colorStart + ', ' + proc.colorEnd + ')',
+                                                background:
+                                                   'linear-gradient(to right, ' +
+                                                   proc.colorStart +
+                                                   ', ' +
+                                                   proc.colorEnd +
+                                                   ')',
                                                 color: '#151b32',
-                                                fontSize: Math.round(24 * printBadgeScale) + 'px',
-                                                fontFamily: '"Onest", sans-serif',
+                                                fontSize:
+                                                   Math.round(
+                                                      24 * printBadgeScale
+                                                   ) + 'px',
+                                                fontFamily:
+                                                   '"Onest", sans-serif',
                                                 lineHeight: 1,
-                                                transform: 'scale(' + printBadgeScale + ')',
+                                                transform:
+                                                   'scale(' +
+                                                   printBadgeScale +
+                                                   ')',
                                                 transformOrigin: 'bottom left',
                                              }}
                                           >
@@ -3591,8 +3722,12 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
                                              <div
                                                 className='absolute right-[3.8%] bottom-[4.8%] w-[22%] max-w-[95px]'
                                                 style={{
-                                                   transform: 'scale(' + printLogoScale + ')',
-                                                   transformOrigin: 'bottom right',
+                                                   transform:
+                                                      'scale(' +
+                                                      printLogoScale +
+                                                      ')',
+                                                   transformOrigin:
+                                                      'bottom right',
                                                 }}
                                              >
                                                 <img
@@ -3600,7 +3735,9 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
                                                    alt='ТопФиш'
                                                    className='w-full h-auto object-contain'
                                                    style={{
-                                                      filter: isEco ? 'invert(1)' : 'none',
+                                                      filter: isEco
+                                                         ? 'invert(1)'
+                                                         : 'none',
                                                    }}
                                                 />
                                              </div>
@@ -3616,16 +3753,28 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
                      // 2. Оборотная сторона (зеркальная по колонкам для идеального двустороннего совмещения при резке)
                      if (needBack) {
                         const numRows = Math.ceil(batchTags.length / 2)
-                        const backSlots: { tag: PriceTagItem | null; key: string }[] = []
+                        const backSlots: {
+                           tag: PriceTagItem | null
+                           key: string
+                        }[] = []
                         for (let r = 0; r < numRows; r++) {
                            const leftTag = batchTags[r * 2 + 1] || null // был справа на лице -> слева на обороте
                            const rightTag = batchTags[r * 2] || null // был слева на лице -> справа на обороте
-                           backSlots.push({ tag: leftTag, key: 'back_' + b + '_r' + r + '_c0' })
-                           backSlots.push({ tag: rightTag, key: 'back_' + b + '_r' + r + '_c1' })
+                           backSlots.push({
+                              tag: leftTag,
+                              key: 'back_' + b + '_r' + r + '_c0',
+                           })
+                           backSlots.push({
+                              tag: rightTag,
+                              key: 'back_' + b + '_r' + r + '_c1',
+                           })
                         }
 
                         pages.push(
-                           <div key={'back_page_' + b} className='print-page-wrapper'>
+                           <div
+                              key={'back_page_' + b}
+                              className='print-page-wrapper'
+                           >
                               <div className='print-tags-grid grid grid-cols-2 gap-2 justify-center'>
                                  {backSlots.map((slot) => {
                                     if (!slot.tag) {
@@ -3633,7 +3782,10 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
                                           <div
                                              key={slot.key}
                                              className='print-tag-card-back opacity-0'
-                                             style={{ width: '100mm', height: '60mm' }}
+                                             style={{
+                                                width: '100mm',
+                                                height: '60mm',
+                                             }}
                                           />
                                        )
                                     }
@@ -3641,9 +3793,14 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
                                     const procBadge =
                                        bTag.processingType === 'CUSTOM'
                                           ? bTag.customProcessingText || 'ТОП'
-                                          : PROCESSING_TYPES[bTag.processingType]?.badgeText || ''
-                                    const code = (bTag.productCode || '').trim() || '—'
-                                    const cleanWeight = formatWeightText(bTag.weight)
+                                          : PROCESSING_TYPES[
+                                               bTag.processingType
+                                            ]?.badgeText || ''
+                                    const code =
+                                       (bTag.productCode || '').trim() || '—'
+                                    const cleanWeight = formatWeightText(
+                                       bTag.weight
+                                    )
 
                                     return (
                                        <div
@@ -3703,7 +3860,8 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
                                              </div>
                                              <div className='font-bold text-slate-800'>
                                                 <span>
-                                                   {bTag.price} {bTag.currency || '₽'}
+                                                   {bTag.price}{' '}
+                                                   {bTag.currency || '₽'}
                                                 </span>
                                                 {cleanWeight && (
                                                    <span className='text-slate-500 font-medium ml-1'>

@@ -182,14 +182,14 @@ export const CATEGORIES_CONFIG: Record<string, CategoryMeta> = {
       description: 'Отложенный звонок (назначено время)',
    },
    SKIPPED: {
-      label: 'Пропустила',
-      shortLabel: 'Пропустила',
-      color: 'bg-slate-100 text-slate-800 border-slate-300 hover:bg-slate-200',
-      activeBg: 'bg-slate-700 text-white',
-      badge: 'bg-slate-100 text-slate-800 border-slate-200',
-      dot: 'bg-slate-500',
+      label: 'Пропустили заявку',
+      shortLabel: 'Пропустили',
+      color: 'bg-sky-50 text-sky-900 border-sky-300 hover:bg-sky-100',
+      activeBg: 'bg-sky-700 text-white',
+      badge: 'bg-sky-100 text-sky-900 border-sky-200',
+      dot: 'bg-sky-500',
       icon: SkipForward,
-      description: 'Клиент пропущен оператором',
+      description: 'Клиент пропустил данную заявку/поставку',
    },
    DID_NOT_PAY: {
       label: 'Не оплатила поставку',
@@ -502,6 +502,98 @@ export default function ClientsCallingTab({
    const [isAddingSessionQuickPhone, setIsAddingSessionQuickPhone] =
       useState(false)
 
+   // Флаг, предотвращающий перезапись localStorage дефолтным пустым стейтом ДО восстановления
+   const isSessionRestoredRef = useRef(false)
+
+   // 1. Восстановление активной сессии обзвона при монтировании компонента (или перезагрузке страницы F5)
+   useEffect(() => {
+      if (typeof window === 'undefined') return
+      try {
+         const userKey = user?.id ? `topfish_calling_session_${user.id}` : 'topfish_calling_session'
+         const raw = localStorage.getItem(userKey) || localStorage.getItem('topfish_calling_session')
+         if (raw) {
+            const data = JSON.parse(raw)
+            const isRecent = !data.savedAt || Date.now() - data.savedAt < 24 * 60 * 60 * 1000 // до 24 часов
+            if (
+               data.isCallingSessionActive &&
+               data.sessionCity &&
+               Array.isArray(data.sessionClients) &&
+               data.sessionClients.length > 0 &&
+               isRecent
+            ) {
+               setSessionCity(data.sessionCity)
+               setSessionClients(data.sessionClients)
+               setCurrentCallIndex(
+                  typeof data.currentCallIndex === 'number' &&
+                     data.currentCallIndex >= 0 &&
+                     data.currentCallIndex < data.sessionClients.length
+                     ? data.currentCallIndex
+                     : 0
+               )
+               if (data.sessionStats) {
+                  setSessionStats(data.sessionStats)
+               }
+               if (typeof data.isSessionFinished === 'boolean') {
+                  setIsSessionFinished(data.isSessionFinished)
+               }
+               if (typeof data.isDockCollapsed === 'boolean') {
+                  setIsDockCollapsed(data.isDockCollapsed)
+               }
+               setIsCallingSessionActive(true)
+               if (data.activeViewMode) {
+                  setActiveViewMode(data.activeViewMode)
+               } else {
+                  setActiveViewMode('workspace')
+               }
+            }
+         }
+      } catch (err) {
+         console.error('Ошибка восстановления сессии обзвона из localStorage:', err)
+      } finally {
+         isSessionRestoredRef.current = true
+      }
+   }, [user?.id])
+
+   // 2. Автоматическое сохранение сессии обзвона в localStorage при каждом изменении
+   useEffect(() => {
+      if (!isSessionRestoredRef.current || typeof window === 'undefined') return
+      const userKey = user?.id ? `topfish_calling_session_${user.id}` : 'topfish_calling_session'
+      if (isCallingSessionActive && sessionCity && sessionClients.length > 0) {
+         try {
+            const payload = {
+               isCallingSessionActive: true,
+               sessionCity,
+               sessionClients,
+               currentCallIndex,
+               sessionStats,
+               isSessionFinished,
+               activeViewMode,
+               isDockCollapsed,
+               savedAt: Date.now(),
+            }
+            localStorage.setItem(userKey, JSON.stringify(payload))
+            localStorage.setItem('topfish_calling_session', JSON.stringify(payload))
+         } catch (e) {
+            console.error('Ошибка сохранения активной сессии обзвона:', e)
+         }
+      } else if (!isCallingSessionActive) {
+         try {
+            localStorage.removeItem(userKey)
+            localStorage.removeItem('topfish_calling_session')
+         } catch (e) {}
+      }
+   }, [
+      isCallingSessionActive,
+      sessionCity,
+      sessionClients,
+      currentCallIndex,
+      sessionStats,
+      isSessionFinished,
+      activeViewMode,
+      isDockCollapsed,
+      user?.id,
+   ])
+
    // Загрузка данных
    const fetchClients = async (silent = false) => {
       try {
@@ -653,6 +745,7 @@ export default function ClientsCallingTab({
             cur.endedAt = log.calledAt
             cur.totalCalls += 1
             if (log.action === 'ORDER_PLACED') cur.orders += 1
+            else if (log.action === 'SKIPPED') cur.skipped = (cur.skipped || 0) + 1
             else if (log.action === 'CALLBACK') cur.callbacks += 1
             else if (log.action === 'NO_ANSWER') cur.noAnswer += 1
             else cur.other += 1
@@ -666,9 +759,10 @@ export default function ClientsCallingTab({
                endedAt: log.calledAt,
                totalCalls: 1,
                orders: log.action === 'ORDER_PLACED' ? 1 : 0,
+               skipped: log.action === 'SKIPPED' ? 1 : 0,
                callbacks: log.action === 'CALLBACK' ? 1 : 0,
                noAnswer: log.action === 'NO_ANSWER' ? 1 : 0,
-               other: !['ORDER_PLACED', 'CALLBACK', 'NO_ANSWER'].includes(log.action) ? 1 : 0,
+               other: !['ORDER_PLACED', 'SKIPPED', 'CALLBACK', 'NO_ANSWER'].includes(log.action) ? 1 : 0,
                calls: [log],
             }
             works.push(cur)
@@ -1466,7 +1560,7 @@ export default function ClientsCallingTab({
          } else if (action === 'NO_ANSWER') {
             toast('Отмечено: Не ответили', { icon: '📵', duration: 1200 })
          } else if (action === 'SKIPPED') {
-            toast('Клиент пропущен', { icon: '⏭️', duration: 1200 })
+            toast('Отмечено: Пропустили заявку', { icon: '⏭️', duration: 1500 })
          } else if (action === 'CLOSED') {
             toast.error('Зафиксировано: Закрылись (исключен из обзвона)', {
                duration: 1800,
@@ -1558,6 +1652,11 @@ export default function ClientsCallingTab({
       setCurrentCallIndex(0)
       setIsSessionFinished(false)
       setActiveViewMode('registry')
+      const userKey = user?.id ? `topfish_calling_session_${user.id}` : 'topfish_calling_session'
+      try {
+         localStorage.removeItem(userKey)
+         localStorage.removeItem('topfish_calling_session')
+      } catch (e) {}
       if (finishedCity) {
          toast.success(`Обзвон по г. ${finishedCity} завершен! Итоги зафиксированы.`)
       }
@@ -1931,29 +2030,29 @@ export default function ClientsCallingTab({
                </div>
             </button>
 
-            {/* Пропустила */}
+            {/* Пропустили заявку */}
             <button
                type='button'
                onClick={() => setSelectedCategory('SKIPPED')}
                className={`p-3 rounded-2xl border text-left transition-all cursor-pointer shadow-xs ${
                   selectedCategory === 'SKIPPED'
-                     ? 'bg-slate-700 text-white border-slate-700 ring-2 ring-slate-500 shadow-md'
-                     : 'bg-slate-100/80 text-slate-800 border-slate-200 hover:bg-slate-200/80'
+                     ? 'bg-sky-700 text-white border-sky-700 ring-2 ring-sky-500 shadow-md'
+                     : 'bg-sky-50/60 text-sky-950 border-sky-200 hover:bg-sky-100/80'
                }`}
             >
                <div className='flex items-center justify-between mb-1.5'>
                   <span className='text-[11px] font-bold uppercase tracking-wider truncate'>
-                     Пропустила
+                     Пропустили
                   </span>
                   <SkipForward
-                     className={`w-3.5 h-3.5 shrink-0 ${selectedCategory === 'SKIPPED' ? 'text-white' : 'text-slate-500'}`}
+                     className={`w-3.5 h-3.5 shrink-0 ${selectedCategory === 'SKIPPED' ? 'text-white' : 'text-sky-600'}`}
                   />
                </div>
                <div className='text-xl font-black text-slate-900'>
                   {stats.skipped || 0}
                </div>
                <div className='text-[10px] opacity-75 mt-0.5 truncate'>
-                  Пропущенные
+                  Пропуск заявки
                </div>
             </button>
 
@@ -3121,6 +3220,10 @@ export default function ClientsCallingTab({
                               <ShoppingBag className='w-3 h-3 text-teal-600' />
                               Заявки: {sessionStats.orderPlaced}
                            </span>
+                           <span className='px-2.5 py-1 rounded-lg bg-sky-50 text-sky-800 border border-sky-200 flex items-center gap-1'>
+                              <SkipForward className='w-3 h-3 text-sky-600' />
+                              Пропустили: {sessionStats.skipped}
+                           </span>
                            <span className='px-2.5 py-1 rounded-lg bg-amber-50 text-amber-900 border border-amber-200 flex items-center gap-1'>
                               <Clock4 className='w-3 h-3 text-amber-600' />
                               Перезвоны: {sessionStats.callback}
@@ -3186,10 +3289,14 @@ export default function ClientsCallingTab({
                         </p>
                      </div>
 
-                     <div className='grid grid-cols-2 sm:grid-cols-4 gap-3 text-left'>
+                     <div className='grid grid-cols-2 sm:grid-cols-5 gap-3 text-left'>
                         <div className='p-3.5 rounded-2xl bg-teal-50/70 border border-teal-200'>
                            <div className='text-xs font-bold text-teal-800 uppercase'>Заявки</div>
                            <div className='text-2xl font-black text-teal-900 mt-0.5'>{sessionStats.orderPlaced}</div>
+                        </div>
+                        <div className='p-3.5 rounded-2xl bg-sky-50/70 border border-sky-200'>
+                           <div className='text-xs font-bold text-sky-800 uppercase'>Пропустили</div>
+                           <div className='text-2xl font-black text-sky-900 mt-0.5'>{sessionStats.skipped}</div>
                         </div>
                         <div className='p-3.5 rounded-2xl bg-amber-50/70 border border-amber-200'>
                            <div className='text-xs font-bold text-amber-800 uppercase'>Перезвоны</div>
@@ -3590,143 +3697,165 @@ export default function ClientsCallingTab({
                                     </span>
                                  </div>
 
-                                 {/* Основные 9 действий */}
-                                 <div className='grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3'>
+                                 {/* Сетка действий (10 кнопок) */}
+                                 <div className='grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3'>
                                     {/* 1. Сделала заявку */}
                                     <button
                                        type='button'
                                        disabled={isSavingCallAction}
                                        onClick={() => handleCallAction('ORDER_PLACED')}
-                                       className='p-4 rounded-2xl bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-700 hover:to-emerald-700 text-white font-black text-sm shadow-md shadow-teal-600/25 transition cursor-pointer flex items-center justify-between'
+                                       className='col-span-1 sm:col-span-1 lg:col-span-2 p-4 rounded-2xl bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-700 hover:to-emerald-700 text-white font-black text-sm shadow-md shadow-teal-600/25 transition cursor-pointer flex items-center justify-between'
                                     >
                                        <div className='flex items-center gap-2.5'>
                                           <ShoppingBag className='w-5 h-5 fill-white' />
                                           <span>Сделала заявку</span>
                                        </div>
-                                       <span className='text-xs bg-white/20 px-2 py-0.5 rounded-lg'>🎉</span>
+                                       <span className='text-xs bg-white/20 px-2 py-0.5 rounded-lg font-bold'>🎉 Заказ</span>
                                     </button>
 
-                                    {/* 2. Перезвонить */}
+                                    {/* 2. Пропустили заявку */}
+                                    <button
+                                       type='button'
+                                       disabled={isSavingCallAction}
+                                       onClick={() => handleCallAction('SKIPPED')}
+                                       className='col-span-1 sm:col-span-1 lg:col-span-2 p-4 rounded-2xl bg-gradient-to-r from-sky-600 to-blue-600 hover:from-sky-700 hover:to-blue-700 text-white font-black text-sm shadow-md shadow-sky-600/25 transition cursor-pointer flex items-center justify-between'
+                                    >
+                                       <div className='flex items-center gap-2.5'>
+                                          <SkipForward className='w-5 h-5 text-white' />
+                                          <span>Пропустили заявку</span>
+                                       </div>
+                                       <span className='text-xs bg-white/20 px-2 py-0.5 rounded-lg font-bold'>В этот раз нет</span>
+                                    </button>
+
+                                    {/* 3. Перезвонить */}
                                     <button
                                        type='button'
                                        disabled={isSavingCallAction}
                                        onClick={() => handleOpenCallbackModal(currentClient)}
                                        className='p-4 rounded-2xl bg-amber-500 hover:bg-amber-600 text-white font-black text-sm shadow-md shadow-amber-500/25 transition cursor-pointer flex items-center justify-between'
                                     >
-                                       <div className='flex items-center gap-2.5'>
-                                          <Clock4 className='w-5 h-5 fill-white/20' />
-                                          <span>Перезвонить</span>
+                                       <div className='flex items-center gap-2.5 min-w-0'>
+                                          <Clock4 className='w-5 h-5 fill-white/20 shrink-0' />
+                                          <span className='truncate'>Перезвонить</span>
                                        </div>
-                                       <span className='text-xs bg-white/20 px-2 py-0.5 rounded-lg'>+30м/время</span>
+                                       <span className='text-[11px] bg-white/20 px-2 py-0.5 rounded-lg shrink-0 font-bold'>+30м/время</span>
                                     </button>
 
-                                    {/* 3. Не ответили */}
+                                    {/* 4. Не ответили */}
                                     <button
                                        type='button'
                                        disabled={isSavingCallAction}
                                        onClick={() => handleCallAction('NO_ANSWER')}
                                        className='p-4 rounded-2xl bg-slate-100 hover:bg-amber-50 hover:text-amber-900 border border-slate-200 text-slate-800 font-bold text-sm transition cursor-pointer flex items-center justify-between'
                                     >
-                                       <div className='flex items-center gap-2.5'>
-                                          <PhoneMissed className='w-5 h-5 text-amber-600' />
-                                          <span>Не ответили</span>
+                                       <div className='flex items-center gap-2.5 min-w-0'>
+                                          <PhoneMissed className='w-5 h-5 text-amber-600 shrink-0' />
+                                          <span className='truncate'>Не ответили</span>
                                        </div>
-                                       <span className='text-[10px] opacity-60'>Гудки / сброс</span>
+                                       <span className='text-[10px] opacity-60 shrink-0'>Гудки / сброс</span>
                                     </button>
 
-                                    {/* 4. Пропустить */}
+                                    {/* 5. Пропустить (Без отметки) */}
                                     <button
                                        type='button'
                                        disabled={isSavingCallAction}
                                        onClick={() => advanceToNextClient()}
                                        className='p-4 rounded-2xl bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-700 font-bold text-sm transition cursor-pointer flex items-center justify-between'
                                     >
-                                       <div className='flex items-center gap-2.5'>
-                                          <SkipForward className='w-5 h-5 text-slate-500' />
-                                          <span>Пропустить</span>
+                                       <div className='flex items-center gap-2.5 min-w-0'>
+                                          <SkipForward className='w-5 h-5 text-slate-400 shrink-0' />
+                                          <span className='truncate'>Пропустить</span>
                                        </div>
-                                       <span className='text-[10px] opacity-60'>Без отметки</span>
+                                       <span className='text-[10px] opacity-60 shrink-0'>Без отметки</span>
                                     </button>
 
-                                    {/* 5. Другое */}
+                                    {/* 6. Другое */}
                                     <button
                                        type='button'
                                        disabled={isSavingCallAction}
                                        onClick={() => {
-                                          const note = prompt('Укажите примечание к звонку:');
-                                          if (note !== null) handleCallAction('OTHER', note);
+                                          const note = prompt('Укажите примечание к звонку:')
+                                          if (note !== null) handleCallAction('OTHER', note)
                                        }}
                                        className='p-4 rounded-2xl bg-purple-50 hover:bg-purple-100 border border-purple-200 text-purple-900 font-bold text-sm transition cursor-pointer flex items-center justify-between'
                                     >
-                                       <div className='flex items-center gap-2.5'>
-                                          <MessageSquare className='w-5 h-5 text-purple-600' />
-                                          <span>Другое</span>
+                                       <div className='flex items-center gap-2.5 min-w-0'>
+                                          <MessageSquare className='w-5 h-5 text-purple-600 shrink-0' />
+                                          <span className='truncate'>Другое</span>
                                        </div>
-                                       <span className='text-[10px] opacity-60'>С примечанием</span>
+                                       <span className='text-[10px] opacity-60 shrink-0'>С примечанием</span>
                                     </button>
 
-                                    {/* 6. Не оплатила поставку */}
+                                    {/* 7. Не оплатила поставку */}
                                     <button
                                        type='button'
                                        disabled={isSavingCallAction}
                                        onClick={() => handleCallAction('DID_NOT_PAY')}
                                        className='p-4 rounded-2xl bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-900 font-bold text-sm transition cursor-pointer flex items-center justify-between'
                                     >
-                                       <div className='flex items-center gap-2.5'>
-                                          <AlertTriangle className='w-5 h-5 text-rose-600' />
-                                          <span>Не оплатила</span>
+                                       <div className='flex items-center gap-2.5 min-w-0'>
+                                          <AlertTriangle className='w-5 h-5 text-rose-600 shrink-0' />
+                                          <span className='truncate'>Не оплатила</span>
                                        </div>
-                                       <span className='text-[10px] opacity-60'>Долг</span>
+                                       <span className='text-[10px] opacity-60 shrink-0'>Долг</span>
                                     </button>
 
-                                    {/* 7. Закрылись (Исключить) */}
+                                    {/* 8. Закрылись (Исключить) */}
                                     <button
                                        type='button'
                                        disabled={isSavingCallAction}
                                        onClick={() => {
-                                          if (confirm(`Отметить клиента "${currentClient.name}" как ЗАКРЫЛИСЬ? Он будет навсегда исключен из очереди обзвона.`)) {
-                                             handleCallAction('CLOSED');
+                                          if (
+                                             confirm(
+                                                `Отметить клиента "${currentClient.name}" как ЗАКРЫЛИСЬ? Он будет навсегда исключен из очереди обзвона.`
+                                             )
+                                          ) {
+                                             handleCallAction('CLOSED')
                                           }
                                        }}
                                        className='p-4 rounded-2xl bg-rose-900 hover:bg-rose-950 text-white font-extrabold text-sm transition cursor-pointer flex items-center justify-between shadow-xs'
                                     >
-                                       <div className='flex items-center gap-2.5'>
-                                          <Store className='w-5 h-5 text-rose-300' />
-                                          <span>Закрылись</span>
+                                       <div className='flex items-center gap-2.5 min-w-0'>
+                                          <Store className='w-5 h-5 text-rose-300 shrink-0' />
+                                          <span className='truncate'>Закрылись</span>
                                        </div>
-                                       <span className='text-[10px] text-rose-300'>Исключить</span>
+                                       <span className='text-[10px] text-rose-300 shrink-0'>Исключить</span>
                                     </button>
 
-                                    {/* 8. Перестали работать (Исключить) */}
+                                    {/* 9. Перестали работать (Исключить) */}
                                     <button
                                        type='button'
                                        disabled={isSavingCallAction}
                                        onClick={() => {
-                                          if (confirm(`Отметить клиента "${currentClient.name}" как ПЕРЕСТАЛИ РАБОТАТЬ? Он будет исключен из очереди обзвона.`)) {
-                                             handleCallAction('STOPPED');
+                                          if (
+                                             confirm(
+                                                `Отметить клиента "${currentClient.name}" как ПЕРЕСТАЛИ РАБОТАТЬ? Он будет исключен из очереди обзвона.`
+                                             )
+                                          ) {
+                                             handleCallAction('STOPPED')
                                           }
                                        }}
                                        className='p-4 rounded-2xl bg-zinc-800 hover:bg-zinc-900 text-white font-extrabold text-sm transition cursor-pointer flex items-center justify-between shadow-xs'
                                     >
-                                       <div className='flex items-center gap-2.5'>
-                                          <UserX className='w-5 h-5 text-zinc-400' />
-                                          <span>Перестали</span>
+                                       <div className='flex items-center gap-2.5 min-w-0'>
+                                          <UserX className='w-5 h-5 text-zinc-400 shrink-0' />
+                                          <span className='truncate'>Перестали</span>
                                        </div>
-                                       <span className='text-[10px] text-zinc-400'>Исключить</span>
+                                       <span className='text-[10px] text-zinc-400 shrink-0'>Исключить</span>
                                     </button>
 
-                                    {/* 9. Сами звонят (Исключить) */}
+                                    {/* 10. Сами звонят (Исключить) */}
                                     <button
                                        type='button'
                                        disabled={isSavingCallAction}
                                        onClick={() => handleCallAction('CALL_THEMSELVES')}
                                        className='p-4 rounded-2xl bg-cyan-50 hover:bg-cyan-100 border border-cyan-200 text-cyan-950 font-bold text-sm transition cursor-pointer flex items-center justify-between'
                                     >
-                                       <div className='flex items-center gap-2.5'>
-                                          <PhoneIncoming className='w-5 h-5 text-cyan-700' />
-                                          <span>Сами звонят</span>
+                                       <div className='flex items-center gap-2.5 min-w-0'>
+                                          <PhoneIncoming className='w-5 h-5 text-cyan-700 shrink-0' />
+                                          <span className='truncate'>Сами звонят</span>
                                        </div>
-                                       <span className='text-[10px] opacity-60'>Не звонить</span>
+                                       <span className='text-[10px] opacity-60 shrink-0'>Не звонить</span>
                                     </button>
                                  </div>
 
@@ -4025,6 +4154,11 @@ export default function ClientsCallingTab({
                                              {sess.orders > 0 && (
                                                 <span className='px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-800 text-xs font-bold border border-emerald-200'>
                                                    Заявки: {sess.orders}
+                                                </span>
+                                             )}
+                                             {sess.skipped > 0 && (
+                                                <span className='px-2.5 py-1 rounded-lg bg-sky-50 text-sky-800 text-xs font-bold border border-sky-200'>
+                                                   Пропустили: {sess.skipped}
                                                 </span>
                                              )}
                                              {sess.callbacks > 0 && (
@@ -5677,11 +5811,11 @@ export default function ClientsCallingTab({
                                     type='button'
                                     disabled={isSavingCallAction}
                                     onClick={() => handleCallAction('SKIPPED')}
-                                    className='h-11 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-200 font-extrabold text-[11px] flex items-center justify-center gap-1 px-1 transition cursor-pointer shadow-sm active:scale-95'
-                                    title='Пропустить'
+                                    className='h-11 rounded-xl bg-sky-700 hover:bg-sky-600 text-white font-extrabold text-[10.5px] flex items-center justify-center gap-1 px-1 transition cursor-pointer shadow-sm active:scale-95'
+                                    title='Пропустили заявку'
                                  >
                                     <span className='text-xs shrink-0'>⏭️</span>
-                                    <span className='whitespace-nowrap'>Пропуск</span>
+                                    <span className='whitespace-nowrap'>Пропустили</span>
                                  </button>
                                  <button
                                     type='button'
