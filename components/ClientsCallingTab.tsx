@@ -443,7 +443,7 @@ export default function ClientsCallingTab({
    // Состояния фиксации звонка в модальном окне «Ждут звонка» (Контур Б)
    const [fixatingClientId, setFixatingClientId] = useState<string | null>(null)
    const [fixatingAction, setFixatingAction] = useState<
-      'ORDER_PLACED' | 'CALLBACK' | 'NO_ANSWER' | 'STOPPED' | null
+      'ORDER_PLACED' | 'CALLBACK' | 'NO_ANSWER' | 'STOPPED' | 'CLOSED' | null
    >(null)
    const [fixatingOrderNote, setFixatingOrderNote] = useState('')
    const [fixatingCallbackPreset, setFixatingCallbackPreset] = useState<
@@ -1505,12 +1505,19 @@ export default function ClientsCallingTab({
       try {
          setIsSavingCallAction(true)
 
+         let defaultComment = callActionNote.trim() || null
+         if (!defaultComment) {
+            if (action === 'CLOSED') defaultComment = 'Торговая точка / ИП закрылись'
+            else if (action === 'STOPPED') defaultComment = 'Клиент перестал работать'
+            else if (action === 'DID_NOT_PAY') defaultComment = 'Не оплатила поставку'
+         }
+
          const payload: any = {
             action,
             comment:
                customNote !== undefined
                   ? customNote.trim()
-                  : callActionNote.trim() || null,
+                  : defaultComment,
          }
 
          if (action === 'CALLBACK' && callbackPayload) {
@@ -1552,7 +1559,7 @@ export default function ClientsCallingTab({
             return key ? { ...prev, [key]: (prev[key] || 0) + 1 } : prev
          })
 
-         // Информативные тосты
+         // Информативные тосты (успешные действия без ложных красных ошибок)
          if (action === 'ORDER_PLACED') {
             toast.success('🎉 Сделала заявку!', { duration: 1500 })
          } else if (action === 'CALLBACK') {
@@ -1562,14 +1569,16 @@ export default function ClientsCallingTab({
          } else if (action === 'SKIPPED') {
             toast('Отмечено: Пропустили заявку', { icon: '⏭️', duration: 1500 })
          } else if (action === 'CLOSED') {
-            toast.error('Зафиксировано: Закрылись (исключен из обзвона)', {
-               duration: 1800,
+            toast.success('Зафиксировано: Закрылись (клиент исключен из обзвона)', {
+               icon: '🏪',
+               duration: 2200,
             })
          } else if (action === 'STOPPED') {
-            toast.error(
-               'Зафиксировано: Перестали работать (исключен из обзвона)',
+            toast.success(
+               'Зафиксировано: Перестали работать (клиент исключен из обзвона)',
                {
-                  duration: 1800,
+                  icon: '⏹️',
+                  duration: 2200,
                }
             )
          } else if (action === 'CALL_THEMSELVES') {
@@ -1578,8 +1587,9 @@ export default function ClientsCallingTab({
                duration: 1800,
             })
          } else if (action === 'DID_NOT_PAY') {
-            toast.error('Зафиксировано: Не оплатила поставку', {
-               duration: 1500,
+            toast('Зафиксировано: Не оплатила поставку', {
+               icon: '⚠️',
+               duration: 1800,
             })
          } else {
             toast.success('Сохранено', { duration: 1200 })
@@ -1666,7 +1676,7 @@ export default function ClientsCallingTab({
    // Фиксация результата звонка по запланированному перезвону (Контур Б: Горячие перезвоны)
    const handleFixateCallOutcome = async (
       client: Client,
-      action: 'ORDER_PLACED' | 'CALLBACK' | 'NO_ANSWER' | 'STOPPED',
+      action: 'ORDER_PLACED' | 'CALLBACK' | 'NO_ANSWER' | 'STOPPED' | 'CLOSED',
       extra?: {
          comment?: string
          callbackPreset?: string
@@ -1692,6 +1702,10 @@ export default function ClientsCallingTab({
                nextDate = new Date()
                nextDate.setDate(nextDate.getDate() + 1)
                nextDate.setHours(10, 0, 0, 0)
+            } else if (preset === 'custom' && extra?.customDate) {
+               const [hours, minutes] = (extra.customTime || '10:00').split(':').map(Number)
+               nextDate = new Date(extra.customDate)
+               nextDate.setHours(isNaN(hours) ? 10 : hours, isNaN(minutes) ? 0 : minutes, 0, 0)
             }
             payload.callbackAt = nextDate.toISOString()
             payload.callbackNote = extra?.callbackNote?.trim() || 'Перенос перезвона'
@@ -1707,20 +1721,18 @@ export default function ClientsCallingTab({
             } else {
                payload.comment = 'Не ответил (перезвон закрыт)'
             }
+         } else if (action === 'CLOSED') {
+            payload.comment = 'Торговая точка / ИП закрылись'
          } else if (action === 'STOPPED') {
             payload.comment = 'Закрылись / перестали работать'
          }
 
+         // /api/clients/:id/calls автоматически сбрасывает перезвон в БД и фиксирует результат
          await api.post(`/api/clients/${client.id}/calls`, payload)
 
-         // Если это не перенос перезвона, снимаем текущее напоминание
-         if (action !== 'CALLBACK' && !(action === 'NO_ANSWER' && extra?.rescheduleMinutes)) {
-            try {
-               await api.post(`/api/clients/${client.id}/clear-callback`)
-            } catch (_) {}
-         }
-
-         toast.success(`Результат звонка зафиксирован: ${client.name}`)
+         toast.success(`Результат звонка зафиксирован: ${client.name}`, {
+            icon: action === 'CLOSED' ? '🏪' : '✅',
+         })
          setFixatingClientId(null)
          setFixatingAction(null)
          fetchActiveCallbacks()
@@ -6045,11 +6057,11 @@ export default function ClientsCallingTab({
                                              type='button'
                                              onClick={() => {
                                                 setFixatingClientId(client.id)
-                                                setFixatingAction('STOPPED')
+                                                setFixatingAction('CLOSED')
                                              }}
                                              className={`p-2.5 rounded-xl text-xs font-extrabold flex items-center justify-center gap-1.5 transition cursor-pointer shadow-xs ${
                                                 isThisFixating &&
-                                                fixatingAction === 'STOPPED'
+                                                fixatingAction === 'CLOSED'
                                                    ? 'bg-rose-700 text-white ring-2 ring-rose-500'
                                                    : 'bg-rose-50 hover:bg-rose-100 text-rose-800 border border-rose-300'
                                              }`}
@@ -6107,15 +6119,22 @@ export default function ClientsCallingTab({
                                                       id: 'tomorrow',
                                                       label: 'Завтра 10:00',
                                                    },
+                                                   {
+                                                      id: 'custom',
+                                                      label: '📅 Свое время',
+                                                   },
                                                 ].map((preset) => (
                                                    <button
                                                       key={preset.id}
                                                       type='button'
-                                                      onClick={() =>
+                                                      onClick={() => {
                                                          setFixatingCallbackPreset(
                                                             preset.id as any
                                                          )
-                                                      }
+                                                         if (preset.id === 'custom' && !fixatingCallbackCustomDate) {
+                                                            setFixatingCallbackCustomDate(new Date().toISOString().slice(0, 10))
+                                                         }
+                                                      }}
                                                       className={`px-2.5 py-1 rounded-lg text-xs font-bold transition border ${
                                                          fixatingCallbackPreset ===
                                                          preset.id
@@ -6127,6 +6146,28 @@ export default function ClientsCallingTab({
                                                    </button>
                                                 ))}
                                              </div>
+                                             {fixatingCallbackPreset === 'custom' && (
+                                                <div className='grid grid-cols-2 gap-2 pt-1'>
+                                                   <div>
+                                                      <label className='block text-[10px] font-bold text-amber-900 mb-0.5'>Дата перезвона:</label>
+                                                      <input
+                                                         type='date'
+                                                         value={fixatingCallbackCustomDate || new Date().toISOString().slice(0, 10)}
+                                                         onChange={(e) => setFixatingCallbackCustomDate(e.target.value)}
+                                                         className='w-full px-2 py-1.5 bg-white border border-amber-300 rounded-lg text-xs font-medium text-slate-800'
+                                                      />
+                                                   </div>
+                                                   <div>
+                                                      <label className='block text-[10px] font-bold text-amber-900 mb-0.5'>Время звонка:</label>
+                                                      <input
+                                                         type='time'
+                                                         value={fixatingCallbackCustomTime || '10:00'}
+                                                         onChange={(e) => setFixatingCallbackCustomTime(e.target.value)}
+                                                         className='w-full px-2 py-1.5 bg-white border border-amber-300 rounded-lg text-xs font-medium text-slate-800'
+                                                      />
+                                                   </div>
+                                                </div>
+                                             )}
                                              <input
                                                 type='text'
                                                 value={fixatingCallbackNote}
@@ -6159,6 +6200,10 @@ export default function ClientsCallingTab({
                                                          {
                                                             callbackPreset:
                                                                fixatingCallbackPreset,
+                                                            customDate:
+                                                               fixatingCallbackCustomDate || new Date().toISOString().slice(0, 10),
+                                                            customTime:
+                                                               fixatingCallbackCustomTime || '10:00',
                                                             callbackNote:
                                                                fixatingCallbackNote,
                                                          }
@@ -6219,15 +6264,13 @@ export default function ClientsCallingTab({
                                           </div>
                                        )}
 
-                                       {isThisFixating && fixatingAction === 'STOPPED' && (
+                                       {isThisFixating && fixatingAction === 'CLOSED' && (
                                           <div className='mt-3 p-3 bg-rose-50 rounded-xl border border-rose-200 space-y-2 animate-in fade-in duration-150'>
                                              <div className='text-xs font-bold text-rose-900'>
-                                                Подтвердите: клиент закрылся или перестал
-                                                работать
+                                                Подтвердите: торговая точка или ИП закрылись
                                              </div>
                                              <p className='text-[11px] text-rose-700'>
-                                                Клиент будет переведен в категорию
-                                                «Перестали», а перезвон будет снят.
+                                                Клиент будет переведен в категорию «Закрылись» и исключен из очереди обзвона.
                                              </p>
                                              <div className='flex items-center justify-end gap-2'>
                                                 <button
@@ -6246,12 +6289,12 @@ export default function ClientsCallingTab({
                                                    onClick={() =>
                                                       handleFixateCallOutcome(
                                                          client,
-                                                         'STOPPED'
+                                                         'CLOSED'
                                                       )
                                                    }
-                                                   className='px-4 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-extrabold shadow-sm disabled:opacity-50'
+                                                   className='px-4 py-1.5 rounded-lg bg-rose-700 hover:bg-rose-800 text-white text-xs font-extrabold shadow-sm disabled:opacity-50'
                                                 >
-                                                   Подтвердить: «Перестали»
+                                                   Подтвердить: «Закрылись»
                                                 </button>
                                              </div>
                                           </div>
