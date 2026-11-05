@@ -3710,19 +3710,30 @@ export default function ClientsCallingTab({
                                  </div>
 
                                  {/* Сетка действий (10 кнопок) */}
-                                 <div className='grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3'>
+                                 <div className='grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3'>
                                     {/* 1. Сделала заявку */}
                                     <button
                                        type='button'
                                        disabled={isSavingCallAction}
                                        onClick={() => handleCallAction('ORDER_PLACED')}
-                                       className='col-span-1 sm:col-span-1 lg:col-span-2 p-4 rounded-2xl bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-700 hover:to-emerald-700 text-white font-black text-sm shadow-md shadow-teal-600/25 transition cursor-pointer flex items-center justify-between'
+                                       className='col-span-1 sm:col-span-1 lg:col-span-2 p-3 sm:p-3.5 rounded-2xl bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-700 hover:to-emerald-700 text-white font-black shadow-md shadow-teal-600/25 transition cursor-pointer flex items-center justify-between min-h-[60px] sm:min-h-[64px]'
                                     >
-                                       <div className='flex items-center gap-2.5'>
-                                          <ShoppingBag className='w-5 h-5 fill-white' />
-                                          <span>Сделала заявку</span>
+                                       <div className='flex items-center gap-3 min-w-0'>
+                                          <div className='w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-white/20 flex items-center justify-center shrink-0'>
+                                             <ShoppingBag className='w-4.5 h-4.5 sm:w-5 sm:h-5 fill-white' />
+                                          </div>
+                                          <div className='min-w-0 text-left'>
+                                             <div className='text-xs sm:text-sm font-black leading-tight'>
+                                                Сделала заявку
+                                             </div>
+                                             <div className='text-[10px] sm:text-[11px] text-teal-100 font-medium leading-tight mt-0.5'>
+                                                Оформили заказ
+                                             </div>
+                                          </div>
                                        </div>
-                                       <span className='text-xs bg-white/20 px-2 py-0.5 rounded-lg font-bold'>🎉 Заказ</span>
+                                       <span className='text-xs bg-white/20 px-2.5 py-1 rounded-xl font-bold shrink-0'>
+                                          🎉 Заказ
+                                       </span>
                                     </button>
 
                                     {/* 2. Пропустили заявку */}
@@ -3730,13 +3741,24 @@ export default function ClientsCallingTab({
                                        type='button'
                                        disabled={isSavingCallAction}
                                        onClick={() => handleCallAction('SKIPPED')}
-                                       className='col-span-1 sm:col-span-1 lg:col-span-2 p-4 rounded-2xl bg-gradient-to-r from-sky-600 to-blue-600 hover:from-sky-700 hover:to-blue-700 text-white font-black text-sm shadow-md shadow-sky-600/25 transition cursor-pointer flex items-center justify-between'
+                                       className='col-span-1 sm:col-span-1 lg:col-span-2 p-3 sm:p-3.5 rounded-2xl bg-gradient-to-r from-sky-600 to-blue-600 hover:from-sky-700 hover:to-blue-700 text-white font-black shadow-md shadow-sky-600/25 transition cursor-pointer flex items-center justify-between min-h-[60px] sm:min-h-[64px]'
                                     >
-                                       <div className='flex items-center gap-2.5'>
-                                          <SkipForward className='w-5 h-5 text-white' />
-                                          <span>Пропустили заявку</span>
+                                       <div className='flex items-center gap-3 min-w-0'>
+                                          <div className='w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-white/20 flex items-center justify-center shrink-0'>
+                                             <SkipForward className='w-4.5 h-4.5 sm:w-5 sm:h-5 text-white' />
+                                          </div>
+                                          <div className='min-w-0 text-left'>
+                                             <div className='text-xs sm:text-sm font-black leading-tight'>
+                                                Пропустили заявку
+                                             </div>
+                                             <div className='text-[10px] sm:text-[11px] text-sky-100 font-medium leading-tight mt-0.5'>
+                                                В этот раз без заказа
+                                             </div>
+                                          </div>
                                        </div>
-                                       <span className='text-xs bg-white/20 px-2 py-0.5 rounded-lg font-bold'>В этот раз нет</span>
+                                       <span className='text-xs bg-white/20 px-2.5 py-1 rounded-xl font-bold shrink-0'>
+                                          В этот раз нет
+                                       </span>
                                     </button>
 
                                     {/* 3. Перезвонить */}
@@ -3744,13 +3766,19 @@ export default function ClientsCallingTab({
                                        type='button'
                                        disabled={isSavingCallAction}
                                        onClick={() => handleOpenCallbackModal(currentClient)}
-                                       className='p-4 rounded-2xl bg-amber-500 hover:bg-amber-600 text-white font-black text-sm shadow-md shadow-amber-500/25 transition cursor-pointer flex items-center justify-between'
+                                       className='p-3 sm:p-3.5 rounded-2xl bg-amber-500 hover:bg-amber-600 text-white shadow-md shadow-amber-500/25 transition cursor-pointer flex items-center gap-2.5 sm:gap-3 text-left min-h-[60px] sm:min-h-[64px]'
                                     >
-                                       <div className='flex items-center gap-2.5 min-w-0'>
-                                          <Clock4 className='w-5 h-5 fill-white/20 shrink-0' />
-                                          <span className='truncate'>Перезвонить</span>
+                                       <div className='w-8 h-8 rounded-xl bg-white/20 flex items-center justify-center shrink-0'>
+                                          <Clock4 className='w-4.5 h-4.5 fill-white/20 text-white' />
                                        </div>
-                                       <span className='text-[11px] bg-white/20 px-2 py-0.5 rounded-lg shrink-0 font-bold'>+30м/время</span>
+                                       <div className='min-w-0 flex-1 text-left'>
+                                          <div className='font-black text-xs sm:text-sm leading-tight text-white'>
+                                             Перезвонить
+                                          </div>
+                                          <div className='text-[10px] sm:text-[11px] text-amber-100 font-bold leading-tight mt-0.5'>
+                                             +30м / время
+                                          </div>
+                                       </div>
                                     </button>
 
                                     {/* 4. Не ответили */}
@@ -3758,13 +3786,19 @@ export default function ClientsCallingTab({
                                        type='button'
                                        disabled={isSavingCallAction}
                                        onClick={() => handleCallAction('NO_ANSWER')}
-                                       className='p-4 rounded-2xl bg-slate-100 hover:bg-amber-50 hover:text-amber-900 border border-slate-200 text-slate-800 font-bold text-sm transition cursor-pointer flex items-center justify-between'
+                                       className='p-3 sm:p-3.5 rounded-2xl bg-slate-100 hover:bg-amber-50 hover:text-amber-950 border border-slate-200 hover:border-amber-200 text-slate-800 transition cursor-pointer flex items-center gap-2.5 sm:gap-3 text-left min-h-[60px] sm:min-h-[64px]'
                                     >
-                                       <div className='flex items-center gap-2.5 min-w-0'>
-                                          <PhoneMissed className='w-5 h-5 text-amber-600 shrink-0' />
-                                          <span className='truncate'>Не ответили</span>
+                                       <div className='w-8 h-8 rounded-xl bg-amber-100/80 text-amber-700 flex items-center justify-center shrink-0'>
+                                          <PhoneMissed className='w-4.5 h-4.5' />
                                        </div>
-                                       <span className='text-[10px] opacity-60 shrink-0'>Гудки / сброс</span>
+                                       <div className='min-w-0 flex-1 text-left'>
+                                          <div className='font-bold text-xs sm:text-sm leading-tight text-slate-900'>
+                                             Не ответили
+                                          </div>
+                                          <div className='text-[10px] sm:text-[11px] text-slate-500 font-semibold leading-tight mt-0.5'>
+                                             Гудки / сброс
+                                          </div>
+                                       </div>
                                     </button>
 
                                     {/* 5. Пропустить (Без отметки) */}
@@ -3772,13 +3806,19 @@ export default function ClientsCallingTab({
                                        type='button'
                                        disabled={isSavingCallAction}
                                        onClick={() => advanceToNextClient()}
-                                       className='p-4 rounded-2xl bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-700 font-bold text-sm transition cursor-pointer flex items-center justify-between'
+                                       className='p-3 sm:p-3.5 rounded-2xl bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-700 transition cursor-pointer flex items-center gap-2.5 sm:gap-3 text-left min-h-[60px] sm:min-h-[64px]'
                                     >
-                                       <div className='flex items-center gap-2.5 min-w-0'>
-                                          <SkipForward className='w-5 h-5 text-slate-400 shrink-0' />
-                                          <span className='truncate'>Пропустить</span>
+                                       <div className='w-8 h-8 rounded-xl bg-slate-200/80 text-slate-600 flex items-center justify-center shrink-0'>
+                                          <SkipForward className='w-4.5 h-4.5' />
                                        </div>
-                                       <span className='text-[10px] opacity-60 shrink-0'>Без отметки</span>
+                                       <div className='min-w-0 flex-1 text-left'>
+                                          <div className='font-bold text-xs sm:text-sm leading-tight text-slate-900'>
+                                             Пропустить
+                                          </div>
+                                          <div className='text-[10px] sm:text-[11px] text-slate-500 font-semibold leading-tight mt-0.5'>
+                                             Без отметки
+                                          </div>
+                                       </div>
                                     </button>
 
                                     {/* 6. Другое */}
@@ -3789,13 +3829,19 @@ export default function ClientsCallingTab({
                                           const note = prompt('Укажите примечание к звонку:')
                                           if (note !== null) handleCallAction('OTHER', note)
                                        }}
-                                       className='p-4 rounded-2xl bg-purple-50 hover:bg-purple-100 border border-purple-200 text-purple-900 font-bold text-sm transition cursor-pointer flex items-center justify-between'
+                                       className='p-3 sm:p-3.5 rounded-2xl bg-purple-50 hover:bg-purple-100 border border-purple-200 text-purple-900 transition cursor-pointer flex items-center gap-2.5 sm:gap-3 text-left min-h-[60px] sm:min-h-[64px]'
                                     >
-                                       <div className='flex items-center gap-2.5 min-w-0'>
-                                          <MessageSquare className='w-5 h-5 text-purple-600 shrink-0' />
-                                          <span className='truncate'>Другое</span>
+                                       <div className='w-8 h-8 rounded-xl bg-purple-100 text-purple-700 flex items-center justify-center shrink-0'>
+                                          <MessageSquare className='w-4.5 h-4.5' />
                                        </div>
-                                       <span className='text-[10px] opacity-60 shrink-0'>С примечанием</span>
+                                       <div className='min-w-0 flex-1 text-left'>
+                                          <div className='font-bold text-xs sm:text-sm leading-tight text-purple-950'>
+                                             Другое
+                                          </div>
+                                          <div className='text-[10px] sm:text-[11px] text-purple-600/90 font-semibold leading-tight mt-0.5'>
+                                             С примечанием
+                                          </div>
+                                       </div>
                                     </button>
 
                                     {/* 7. Не оплатила поставку */}
@@ -3803,13 +3849,19 @@ export default function ClientsCallingTab({
                                        type='button'
                                        disabled={isSavingCallAction}
                                        onClick={() => handleCallAction('DID_NOT_PAY')}
-                                       className='p-4 rounded-2xl bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-900 font-bold text-sm transition cursor-pointer flex items-center justify-between'
+                                       className='p-3 sm:p-3.5 rounded-2xl bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-900 transition cursor-pointer flex items-center gap-2.5 sm:gap-3 text-left min-h-[60px] sm:min-h-[64px]'
                                     >
-                                       <div className='flex items-center gap-2.5 min-w-0'>
-                                          <AlertTriangle className='w-5 h-5 text-rose-600 shrink-0' />
-                                          <span className='truncate'>Не оплатила</span>
+                                       <div className='w-8 h-8 rounded-xl bg-rose-100 text-rose-700 flex items-center justify-center shrink-0'>
+                                          <AlertTriangle className='w-4.5 h-4.5' />
                                        </div>
-                                       <span className='text-[10px] opacity-60 shrink-0'>Долг</span>
+                                       <div className='min-w-0 flex-1 text-left'>
+                                          <div className='font-bold text-xs sm:text-sm leading-tight text-rose-950'>
+                                             Не оплатила
+                                          </div>
+                                          <div className='text-[10px] sm:text-[11px] text-rose-600 font-bold leading-tight mt-0.5'>
+                                             Долг
+                                          </div>
+                                       </div>
                                     </button>
 
                                     {/* 8. Закрылись (Исключить) */}
@@ -3825,13 +3877,19 @@ export default function ClientsCallingTab({
                                              handleCallAction('CLOSED')
                                           }
                                        }}
-                                       className='p-4 rounded-2xl bg-rose-900 hover:bg-rose-950 text-white font-extrabold text-sm transition cursor-pointer flex items-center justify-between shadow-xs'
+                                       className='p-3 sm:p-3.5 rounded-2xl bg-rose-900 hover:bg-rose-950 text-white transition cursor-pointer flex items-center gap-2.5 sm:gap-3 text-left shadow-xs min-h-[60px] sm:min-h-[64px]'
                                     >
-                                       <div className='flex items-center gap-2.5 min-w-0'>
-                                          <Store className='w-5 h-5 text-rose-300 shrink-0' />
-                                          <span className='truncate'>Закрылись</span>
+                                       <div className='w-8 h-8 rounded-xl bg-white/10 text-rose-300 flex items-center justify-center shrink-0'>
+                                          <Store className='w-4.5 h-4.5' />
                                        </div>
-                                       <span className='text-[10px] text-rose-300 shrink-0'>Исключить</span>
+                                       <div className='min-w-0 flex-1 text-left'>
+                                          <div className='font-black text-xs sm:text-sm leading-tight text-white'>
+                                             Закрылись
+                                          </div>
+                                          <div className='text-[10px] sm:text-[11px] text-rose-300 font-bold leading-tight mt-0.5'>
+                                             Исключить
+                                          </div>
+                                       </div>
                                     </button>
 
                                     {/* 9. Перестали работать (Исключить) */}
@@ -3847,13 +3905,19 @@ export default function ClientsCallingTab({
                                              handleCallAction('STOPPED')
                                           }
                                        }}
-                                       className='p-4 rounded-2xl bg-zinc-800 hover:bg-zinc-900 text-white font-extrabold text-sm transition cursor-pointer flex items-center justify-between shadow-xs'
+                                       className='p-3 sm:p-3.5 rounded-2xl bg-zinc-800 hover:bg-zinc-900 text-white transition cursor-pointer flex items-center gap-2.5 sm:gap-3 text-left shadow-xs min-h-[60px] sm:min-h-[64px]'
                                     >
-                                       <div className='flex items-center gap-2.5 min-w-0'>
-                                          <UserX className='w-5 h-5 text-zinc-400 shrink-0' />
-                                          <span className='truncate'>Перестали</span>
+                                       <div className='w-8 h-8 rounded-xl bg-white/10 text-zinc-300 flex items-center justify-center shrink-0'>
+                                          <UserX className='w-4.5 h-4.5' />
                                        </div>
-                                       <span className='text-[10px] text-zinc-400 shrink-0'>Исключить</span>
+                                       <div className='min-w-0 flex-1 text-left'>
+                                          <div className='font-black text-xs sm:text-sm leading-tight text-white'>
+                                             Перестали
+                                          </div>
+                                          <div className='text-[10px] sm:text-[11px] text-zinc-400 font-bold leading-tight mt-0.5'>
+                                             Исключить
+                                          </div>
+                                       </div>
                                     </button>
 
                                     {/* 10. Сами звонят (Исключить) */}
@@ -3861,13 +3925,19 @@ export default function ClientsCallingTab({
                                        type='button'
                                        disabled={isSavingCallAction}
                                        onClick={() => handleCallAction('CALL_THEMSELVES')}
-                                       className='p-4 rounded-2xl bg-cyan-50 hover:bg-cyan-100 border border-cyan-200 text-cyan-950 font-bold text-sm transition cursor-pointer flex items-center justify-between'
+                                       className='p-3 sm:p-3.5 rounded-2xl bg-cyan-50 hover:bg-cyan-100 border border-cyan-200 text-cyan-950 transition cursor-pointer flex items-center gap-2.5 sm:gap-3 text-left min-h-[60px] sm:min-h-[64px]'
                                     >
-                                       <div className='flex items-center gap-2.5 min-w-0'>
-                                          <PhoneIncoming className='w-5 h-5 text-cyan-700 shrink-0' />
-                                          <span className='truncate'>Сами звонят</span>
+                                       <div className='w-8 h-8 rounded-xl bg-cyan-100 text-cyan-800 flex items-center justify-center shrink-0'>
+                                          <PhoneIncoming className='w-4.5 h-4.5' />
                                        </div>
-                                       <span className='text-[10px] opacity-60 shrink-0'>Не звонить</span>
+                                       <div className='min-w-0 flex-1 text-left'>
+                                          <div className='font-bold text-xs sm:text-sm leading-tight text-cyan-950'>
+                                             Сами звонят
+                                          </div>
+                                          <div className='text-[10px] sm:text-[11px] text-cyan-700 font-semibold leading-tight mt-0.5'>
+                                             Не звонить
+                                          </div>
+                                       </div>
                                     </button>
                                  </div>
 
