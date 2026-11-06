@@ -142,40 +142,201 @@ export const TOPFISH_DEFAULTS = {
    logoScale: 100, // лого: 100%
 }
 
+// Вспомогательная функция расчёта относительной ширины символа в Onest Bold
+export const getOnestCharWidth = (ch: string): number => {
+   if (' !.,:;()[]/\\-–—'.includes(ch)) {
+      if ('.,:;!|'.includes(ch)) return 0.32
+      if ('()[]'.includes(ch)) return 0.38
+      if ('-–—'.includes(ch)) return 0.50
+      return 0.30
+   }
+   const upper = ch.toUpperCase()
+   if ('I1ІЇJL'.includes(upper)) return 0.42
+   if ('ГТЕЗЬЪFR'.includes(upper)) return 0.62
+   if ('ЖМФЦШЩЫЮW'.includes(upper)) return 0.92
+   return 0.74 // Стандартные широкие буквы кириллицы: А, Б, В, Д, К, Л, Н, О, П, С, У, Х, Ч, Я, цифры
+}
+
+export const measureOnestTextWidth = (text: string, fontSize: number): number => {
+   let w = 0
+   for (let i = 0; i < text.length; i++) {
+      w += getOnestCharWidth(text[i]) * fontSize
+   }
+   return w
+}
+
 // Умное динамическое масштабирование названия по сетке (Grid Auto-Scaling):
-// Рассчитывает идеальный кегль Onest Bold, чтобы текст органично заполнял карточку
-// и гарантированно не налезал на блок цены (калибровка под стандарты заказчика).
+// Рассчитывает идеальный кегль Onest Bold при СТРОГО 100% ЕСТЕСТВЕННЫХ пропорциях шрифта (без сужения и вытягивания),
+// Интерфейс для динамического лейаута названия и цены (оптический вертикальный баланс)
+export interface TitleToken {
+   text: string
+   prefix?: string
+   suffix?: string
+   isDesc: boolean
+}
+
+export interface DynamicTitleLayout {
+   fontSize: number
+   scaleY: number // строго 1.0 (100% натуральные пропорции шрифта без сужения)
+   linesCount: number
+   titleHeight: number
+   dynamicTitleY: number // Y-координата для Canvas (на базовом холсте 1024x614)
+   dynamicTitleTopPercent: number // Процент top для Live Preview и листа печати
+   dynamicPriceY: number // Базовая Y-координата цены для Canvas
+   dynamicPriceTopPercent: number // Процент top контейнера цены для Live Preview и листа печати
+   lines: TitleToken[][]
+}
+
+// Умное динамическое масштабирование названия и оптический баланс карточки:
+// Рассчитывает идеальный кегль Onest Bold при СТРОГО 100% ЕСТЕСТВЕННЫХ пропорциях шрифта (без искажения и сужения),
+// укладывает слова в естественный поток строк (как в эталонных референсах) и гарантирует безопасный зазор до цены.
+export const computeDynamicTitleLayout = (
+   title: string,
+   desc: string
+): DynamicTitleLayout => {
+   const rawTitle = (title || '').trim().toUpperCase()
+   const cleanDesc = (desc || '').trim().toUpperCase()
+   // Если название не заполнено, используем плейсхолдер «НАЗВАНИЕ ТОВАРА»
+   const cleanTitle = rawTitle || (cleanDesc ? '' : 'НАЗВАНИЕ ТОВАРА')
+
+   const maxW = 926 // 1024 - 34px (левый отступ) - 64px (правый безопасный отступ)
+   const maxMultiLineH = 195 // Максимальная высота блока названия при многострочности
+
+   const rawTokens: TitleToken[] = []
+   cleanTitle
+      .split(/\s+/)
+      .filter(Boolean)
+      .forEach((w) => rawTokens.push({ text: w, isDesc: false }))
+
+   if (cleanDesc) {
+      const descWords = cleanDesc.split(/\s+/).filter(Boolean)
+      descWords.forEach((w, idx) => {
+         const isFirst = idx === 0
+         const isLast = idx === descWords.length - 1
+         rawTokens.push({
+            prefix: isFirst ? '(' : undefined,
+            text: w,
+            suffix: isLast ? ')' : undefined,
+            isDesc: true,
+         })
+      })
+   }
+
+   // 1. Одиночное слово без описания (СИГ, ЯЗЬ, СУДАК, ТЕРПУГ, СКУМБРИЯ, ПОТРАШЕННАЯ):
+   if (!cleanDesc && rawTokens.length === 1) {
+      const singleToken = rawTokens[0]
+      const wCoeff = measureOnestTextWidth(singleToken.text, 1)
+      const fitSize = Math.floor(maxW / Math.max(0.1, wCoeff))
+      const fontSize = Math.max(36, Math.min(220, fitSize))
+      const titleHeight = fontSize
+
+      const targetZoneH = 215
+      const diff = Math.max(0, targetZoneH - titleHeight)
+
+      const dynamicTitleY = Math.round(28 + diff * 0.44)
+      const dynamicTitleTopPercent = Number(
+         (4.6 + (diff * 0.44 / 614) * 100).toFixed(2)
+      )
+
+      const dynamicPriceY = Math.round(390 - diff * 0.22)
+      const dynamicPriceTopPercent = Number(
+         (12.0 - (diff * 0.22 / 614) * 100).toFixed(2)
+      )
+
+      return {
+         fontSize,
+         scaleY: 1.0,
+         linesCount: 1,
+         titleHeight,
+         dynamicTitleY,
+         dynamicTitleTopPercent,
+         dynamicPriceY,
+         dynamicPriceTopPercent,
+         lines: [[singleToken]],
+      }
+   }
+
+   // 2. Многословное название или название с описанием (КОЛБАСА (ФОРЕЛЬ, ТУНЕЦ, МАСЛЯНАЯ), СИГ (ПОТРОШЕННЫЙ)):
+   let fontSize = 36
+   let bestLines: TitleToken[][] = [rawTokens]
+   let linesCount = 2
+
+   for (let sz = 140; sz >= 36; sz -= 2) {
+      const candidateLines: TitleToken[][] = []
+      let curLine: TitleToken[] = []
+      let curW = 0
+      const spaceW = 0.32 * sz
+      let hasOverflow = false
+
+      for (const t of rawTokens) {
+         const tStr = (t.prefix || '') + t.text + (t.suffix || '')
+         const tW = measureOnestTextWidth(tStr, sz)
+         if (tW > maxW) {
+            hasOverflow = true
+            break
+         }
+         const addedW = curLine.length > 0 ? spaceW + tW : tW
+
+         if (curLine.length > 0 && curW + addedW > maxW) {
+            candidateLines.push(curLine)
+            curLine = [t]
+            curW = tW
+         } else {
+            curLine.push(t)
+            curW += addedW
+         }
+      }
+      if (hasOverflow) continue
+      if (curLine.length > 0) candidateLines.push(curLine)
+
+      const totalH = candidateLines.length * sz * 1.08
+      if (totalH <= maxMultiLineH) {
+         fontSize = sz
+         linesCount = candidateLines.length
+         bestLines = candidateLines
+         break
+      }
+   }
+
+   const titleHeight = Math.round(linesCount * fontSize * 1.08)
+   const targetZoneH = 215
+   const diff = Math.max(0, targetZoneH - titleHeight)
+
+   const dynamicTitleY = Math.round(28 + diff * 0.44)
+   const dynamicTitleTopPercent = Number(
+      (4.6 + (diff * 0.44 / 614) * 100).toFixed(2)
+   )
+
+   const dynamicPriceY = Math.round(390 - diff * 0.22)
+   const dynamicPriceTopPercent = Number(
+      (12.0 - (diff * 0.22 / 614) * 100).toFixed(2)
+   )
+
+   return {
+      fontSize,
+      scaleY: 1.0,
+      linesCount,
+      titleHeight,
+      dynamicTitleY,
+      dynamicTitleTopPercent,
+      dynamicPriceY,
+      dynamicPriceTopPercent,
+      lines: bestLines,
+   }
+}
+
 export const computeDynamicTitleFontSize = (
    title: string,
    desc: string
 ): number => {
-   const cleanTitle = (title || '').trim().toUpperCase()
-   const cleanDesc = (desc || '').trim().toUpperCase()
-   const isSingleWord = !cleanDesc && cleanTitle.split(/\s+/).length === 1
+   return computeDynamicTitleLayout(title, desc).fontSize
+}
 
-   // 1. Одиночное слово (СИГ, ЯЗЬ, СУДАК, СКУМБРИЯ):
-   if (isSingleWord) {
-      const len = cleanTitle.length
-      if (len <= 3) return 220 // ЯЗЬ, СИГ, СОМ (золотой эталон заказчика: ровно 220px!)
-      if (len <= 4) return 200 // ЩУКА, ЛЕЩ
-      if (len <= 5) return 180 // СУДАК, ТУНЕЦ
-      if (len <= 7) return 155 // ТЕРПУГ, ФОРЕЛЬ
-      if (len <= 9) return 135 // СКУМБРИЯ
-      if (len <= 12) return 115
-      return 100
-   }
-
-   // 2. Название с описанием в скобках или составное название:
-   // Текст переносится на 2-3 строки и масштабируется так,
-   // чтобы строго помещаться в верхней части над ценой.
-   const totalLen = cleanTitle.length + (cleanDesc ? cleanDesc.length + 3 : 0)
-   if (totalLen <= 10) return 130 // e.g. СОМ (Х/К)
-   if (totalLen <= 16) return 115 // e.g. ЯЗЬ (КОЛОДКА) -> 2 строки над ценой!
-   if (totalLen <= 24) return 98 // e.g. СКУМБРИЯ (БЕЗ ГОЛОВЫ)
-   if (totalLen <= 34) return 85
-   if (totalLen <= 48) return 72 // e.g. КОЛБАСА (ФОРЕЛЬ, ТУНЕЦ, МАСЛЯНАЯ)
-   if (totalLen <= 65) return 60
-   return 50
+export const computeDynamicTitleScaleY = (
+   title: string,
+   desc: string
+): number => {
+   return 1.0
 }
 
 // Умное динамическое масштабирование цены по сетке (Grid Auto-Scaling):
@@ -897,13 +1058,26 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
       'both' | 'front_only' | 'back_only'
    >('both')
 
-   // Эффективный размер названия (px на базе 1024x614)
+   // Эффективный лейаут названия с оптическим вертикальным балансом
+   const effectiveTitleLayout = useMemo(() => {
+      return computeDynamicTitleLayout(currentTag.title, currentTag.description)
+   }, [currentTag.title, currentTag.description])
+
+   // Эффективный размер названия (px на базе 1024x614) - строго естественные пропорции (1:1)
    const effectiveTitleFontSize = useMemo(() => {
       return (
          currentTag.titleFontSize ||
-         computeDynamicTitleFontSize(currentTag.title, currentTag.description)
+         effectiveTitleLayout.fontSize
       )
-   }, [currentTag.titleFontSize, currentTag.title, currentTag.description])
+   }, [currentTag.titleFontSize, effectiveTitleLayout.fontSize])
+
+   const effectiveTitleTopPercent = useMemo(() => {
+      return effectiveTitleLayout.dynamicTitleTopPercent
+   }, [effectiveTitleLayout.dynamicTitleTopPercent])
+
+   const effectivePriceTopPercent = useMemo(() => {
+      return effectiveTitleLayout.dynamicPriceTopPercent
+   }, [effectiveTitleLayout.dynamicPriceTopPercent])
 
    // Эффективный размер цены (px на базе 1024x614)
    const effectivePriceFontSize = useMemo(() => {
@@ -962,7 +1136,7 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
    const isCurrentSingleWord = useMemo(() => {
       const cleanDesc = (currentTag.description || '').trim()
       const cleanTitle = (currentTag.title || '').trim()
-      return !cleanDesc && cleanTitle.split(/\s+/).length === 1
+      return !cleanDesc && !!cleanTitle && cleanTitle.split(/\s+/).length === 1
    }, [currentTag.title, currentTag.description])
 
    const cleanWeightText = useMemo(() => {
@@ -1127,9 +1301,10 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
       ctx.save()
       const titleText = (tag.title || '').trim().toUpperCase()
       const descText = (tag.description || '').trim().toUpperCase()
+      const titleLayout = computeDynamicTitleLayout(titleText, descText)
 
       let fontSize =
-         tag.titleFontSize || computeDynamicTitleFontSize(titleText, descText)
+         tag.titleFontSize || titleLayout.fontSize
 
       const titleOffsetY =
          tag.titleOffsetY !== undefined
@@ -1146,141 +1321,43 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
       ctx.textAlign = 'left'
       ctx.textBaseline = 'top'
 
-      const maxTitleWidth = baseW - 90
       const startX = 48 + titleOffsetX
-      let currentY = 40 + titleOffsetY
+      let currentY = titleLayout.dynamicTitleY + titleOffsetY
+      const lineHeight = fontSize * 1.08
 
-      type Token = {
-         prefix?: string
-         text: string
-         suffix?: string
-         isDesc: boolean
-      }
-      const rawTokens: Token[] = []
-      titleText
-         .split(/\s+/)
-         .filter(Boolean)
-         .forEach((w) => rawTokens.push({ text: w, isDesc: false }))
+      const lines = titleLayout.lines || []
 
-      if (descText) {
-         const descWords = descText.split(/\s+/).filter(Boolean)
-         descWords.forEach((w, idx) => {
-            const isFirst = idx === 0
-            const isLast = idx === descWords.length - 1
-            rawTokens.push({
-               prefix: isFirst ? '(' : undefined,
-               text: w,
-               suffix: isLast ? ')' : undefined,
-               isDesc: true,
-            })
-         })
-      }
-
-      // Перенос слов: если отдельное слово не помещается целиком на одной строке при крупном шрифте,
-      // разбиваем его посимвольно на строки, которые гарантированно помещаются
-      const splitTokens: Token[] = []
-      for (const token of rawTokens) {
-         const fullWordStr =
-            (token.prefix || '') + token.text + (token.suffix || '')
-         const tokenW = ctx.measureText(fullWordStr).width
-         if (tokenW <= maxTitleWidth) {
-            splitTokens.push(token)
-         } else {
-            const chars = token.text.split('')
-            let currentChunk = ''
-            let isFirstChunk = true
-            for (let i = 0; i < chars.length; i++) {
-               const testText = currentChunk + chars[i]
-               const testStr =
-                  (isFirstChunk && token.prefix ? token.prefix : '') + testText
-               if (
-                  currentChunk &&
-                  ctx.measureText(testStr).width > maxTitleWidth
-               ) {
-                  splitTokens.push({
-                     prefix: isFirstChunk ? token.prefix : undefined,
-                     text: currentChunk,
-                     suffix: undefined,
-                     isDesc: token.isDesc,
-                  })
-                  currentChunk = chars[i]
-                  isFirstChunk = false
-               } else {
-                  currentChunk = testText
-               }
-            }
-            if (currentChunk) {
-               splitTokens.push({
-                  prefix: isFirstChunk ? token.prefix : undefined,
-                  text: currentChunk,
-                  suffix: token.suffix,
-                  isDesc: token.isDesc,
-               })
-            }
-         }
-      }
-
-      const lineHeight = fontSize * 1.06
-      const lines: Token[][] = []
-      let curLine: Token[] = []
-      let curWidth = 0
-
-      for (const token of splitTokens) {
-         const fullWordStr =
-            (token.prefix || '') + token.text + (token.suffix || '')
-         const spaceW = ctx.measureText(' ').width
-         const tokenWidth = ctx.measureText(fullWordStr).width
-         const addedWidth =
-            curLine.length > 0 ? spaceW + tokenWidth : tokenWidth
-
-         if (curLine.length > 0 && curWidth + addedWidth > maxTitleWidth) {
-            lines.push(curLine)
-            curLine = [token]
-            curWidth = tokenWidth
-         } else {
-            curLine.push(token)
-            curWidth += addedWidth
-         }
-      }
-      if (curLine.length > 0) lines.push(curLine)
-
-      lines.forEach((line) => {
+      lines.forEach((lineTokens) => {
          let x = startX
-         line.forEach((token) => {
-            // Отрисовка префикса (скобки) без подчеркивания
+         lineTokens.forEach((token) => {
             if (token.prefix) {
                ctx.fillText(token.prefix, x, currentY)
                x += ctx.measureText(token.prefix).width
             }
-
-            // Отрисовка основного слова
-            const w = ctx.measureText(token.text).width
-            ctx.fillText(token.text, x, currentY)
-
-            // Подчеркивание только под описанием (не под скобками!)
-            if (token.isDesc && tag.underlineDescription) {
-               ctx.save()
-               ctx.fillStyle = '#ffffff'
-               const lineY = currentY + fontSize * 1.05
-               const lineThickness = Math.max(3, Math.round(fontSize * 0.052))
-               ctx.fillRect(x, lineY, w, lineThickness)
-               ctx.restore()
+            if (token.text) {
+               const w = ctx.measureText(token.text).width
+               ctx.fillText(token.text, x, currentY)
+               if (token.isDesc && tag.underlineDescription) {
+                  ctx.save()
+                  ctx.fillStyle = '#ffffff'
+                  const lineY = currentY + fontSize * 1.05
+                  const lineThickness = Math.max(3, Math.round(fontSize * 0.052))
+                  ctx.fillRect(x, lineY, w, lineThickness)
+                  ctx.restore()
+               }
+               x += w
             }
-            x += w
-
-            // Отрисовка суффикса (закрывающей скобки) без подчеркивания
             if (token.suffix) {
                ctx.fillText(token.suffix, x, currentY)
                x += ctx.measureText(token.suffix).width
             }
-
             x += ctx.measureText(' ').width
          })
          currentY += lineHeight
       })
       ctx.restore()
 
-      // 6. Отрисовка ЦЕНЫ и ВЕСА
+            // 6. Отрисовка ЦЕНЫ и ВЕСА
       // Требование 1: не должно сливаться Рубль (отдельный просчитанный зазор)
       // Требование 3: 100г. не в скобках, тоньше линия и шрифт
       ctx.save()
@@ -1332,7 +1409,7 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
             ? tag.priceOffsetY
             : TOPFISH_DEFAULTS.priceOffsetY
       const groupStartX = baseGroupStartX + priceOffsetX
-      const basePriceY = 390
+      const basePriceY = titleLayout.dynamicPriceY
       const priceY = basePriceY + priceOffsetY
 
       // Отрисовка цифр
@@ -2462,8 +2539,9 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
                            >
                               {/* 1. Верхний текст: Название и Описание */}
                               <div
-                                 className='absolute left-[4.8%] top-[5.5%] max-w-[90%] text-white select-none'
+                                 className='absolute left-[4.8%] max-w-[90%] text-white select-none'
                                  style={{
+                                    top: `${effectiveTitleTopPercent}%`,
                                     fontFamily: '"Onest", sans-serif',
                                     fontStyle: currentTag.isItalic
                                        ? 'italic'
@@ -2475,37 +2553,34 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
                                     transform: `translate(${pxToCqi(currentTag.titleOffsetX !== undefined ? currentTag.titleOffsetX : TOPFISH_DEFAULTS.titleOffsetX)}, ${pxToCqi(currentTag.titleOffsetY !== undefined ? currentTag.titleOffsetY : TOPFISH_DEFAULTS.titleOffsetY)})`,
                                     padding: '0.4% 0.8%',
                                     maxWidth: '90.4%',
-                                    wordBreak: 'break-word',
-                                    overflowWrap: 'anywhere',
+                                    wordBreak: 'normal',
+                                    overflowWrap: 'normal',
                                  }}
                               >
                                  <div className='tracking-tight'>
-                                    <span>
-                                       {currentTag.title || 'НАЗВАНИЕ ТОВАРА'}
-                                    </span>
-                                    {currentTag.description && (
-                                       <>
-                                          {' '}
-                                          <span>
-                                             (
-                                             <span
-                                                style={{
-                                                   textDecoration:
-                                                      currentTag.underlineDescription
-                                                         ? 'underline'
-                                                         : 'none',
-                                                   textUnderlineOffset:
-                                                      '0.08em',
-                                                   textDecorationThickness:
-                                                      '0.05em',
-                                                }}
-                                             >
-                                                {currentTag.description}
+                                    {effectiveTitleLayout.lines.map((lineTokens, lineIdx) => (
+                                       <div key={`lp-l-${lineIdx}`} className='whitespace-nowrap'>
+                                          {lineTokens.map((token, tIdx) => (
+                                             <span key={`lp-t-${tIdx}`}>
+                                                {tIdx > 0 ? ' ' : ''}
+                                                {token.prefix || ''}
+                                                <span
+                                                   style={{
+                                                      textDecoration:
+                                                         token.isDesc && currentTag.underlineDescription
+                                                            ? 'underline'
+                                                            : 'none',
+                                                      textUnderlineOffset: '0.08em',
+                                                      textDecorationThickness: '0.05em',
+                                                   }}
+                                                >
+                                                   {token.text}
+                                                </span>
+                                                {token.suffix || ''}
                                              </span>
-                                             )
-                                          </span>
-                                       </>
-                                    )}
+                                          ))}
+                                       </div>
+                                    ))}
                                  </div>
                               </div>
 
@@ -2538,7 +2613,7 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
                                        <span>{currentTag.price || '0'}</span>
                                        <span
                                           style={{
-                                             marginLeft: '0.14em', // Гарантированный зазор перед символом ₽!
+                                             marginLeft: '0.14em',
                                           }}
                                        >
                                           {currentTag.currency || '₽'}
@@ -2945,12 +3020,16 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
                                   : `/textures/${tag.textureMode}.jpg`
 
                         const cleanItemWeight = formatWeightText(tag.weight)
+                        const itemLayout = computeDynamicTitleLayout(
+                           tag.title,
+                           tag.description
+                        )
                         const itemTitleFontSize =
-                           tag.titleFontSize ||
-                           computeDynamicTitleFontSize(
-                              tag.title,
-                              tag.description
-                           )
+                           tag.titleFontSize || itemLayout.fontSize
+                        const itemTitleTopPercent =
+                           itemLayout.dynamicTitleTopPercent
+                        const itemPriceTopPercent =
+                           itemLayout.dynamicPriceTopPercent
                         const itemPriceFontSize =
                            tag.priceFontSize ||
                            computeDynamicPriceFontSize(tag.price)
@@ -3008,50 +3087,48 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
                               >
                                  {/* 1. Верхний текст: Название и Описание */}
                                  <div
-                                    className='absolute left-[4.8%] top-[5.5%] max-w-[90%] text-white'
+                                    className='absolute left-[4.8%] max-w-[90%] text-white'
                                     style={{
+                                       top: itemTitleTopPercent + '%',
                                        fontFamily: '"Onest", sans-serif',
                                        fontStyle: tag.isItalic
                                           ? 'italic'
                                           : 'normal',
                                        fontWeight: 700,
                                        textTransform: 'uppercase',
-                                       lineHeight: 1.06,
+                                       lineHeight: 1.08,
                                        fontSize: pxToCqi(itemTitleFontSize),
                                        transform: `translate(${pxToCqi(itemTitleOffsetX)}, ${pxToCqi(itemTitleOffsetY)})`,
                                        padding: '0.4% 0.8%',
                                        maxWidth: '90.4%',
-                                       wordBreak: 'break-word',
-                                       overflowWrap: 'anywhere',
+                                       wordBreak: 'normal',
+                                       overflowWrap: 'normal',
                                     }}
                                  >
                                     <div className='tracking-tight'>
-                                       <span>
-                                          {tag.title || 'НАЗВАНИЕ ТОВАРА'}
-                                       </span>
-                                       {tag.description && (
-                                          <>
-                                             {' '}
-                                             <span>
-                                                (
-                                                <span
-                                                   style={{
-                                                      textDecoration:
-                                                         tag.underlineDescription
-                                                            ? 'underline'
-                                                            : 'none',
-                                                      textUnderlineOffset:
-                                                         '0.08em',
-                                                      textDecorationThickness:
-                                                         '0.05em',
-                                                   }}
-                                                >
-                                                   {tag.description}
+                                       {itemLayout.lines.map((lineTokens, lineIdx) => (
+                                          <div key={`q-l-${lineIdx}`} className='whitespace-nowrap'>
+                                             {lineTokens.map((token, tIdx) => (
+                                                <span key={`q-t-${tIdx}`}>
+                                                   {tIdx > 0 ? ' ' : ''}
+                                                   {token.prefix || ''}
+                                                   <span
+                                                      style={{
+                                                         textDecoration:
+                                                            token.isDesc && tag.underlineDescription
+                                                               ? 'underline'
+                                                               : 'none',
+                                                         textUnderlineOffset: '0.08em',
+                                                         textDecorationThickness: '0.05em',
+                                                      }}
+                                                   >
+                                                      {token.text}
+                                                   </span>
+                                                   {token.suffix || ''}
                                                 </span>
-                                                )
-                                             </span>
-                                          </>
-                                       )}
+                                             ))}
+                                          </div>
+                                       ))}
                                     </div>
                                  </div>
 
@@ -3074,39 +3151,31 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
                                           className='flex items-baseline text-white font-black'
                                           style={{
                                              fontFamily: '"Onest", sans-serif',
-                                             fontSize:
-                                                pxToCqi(itemPriceFontSize),
+                                             fontSize: pxToCqi(itemPriceFontSize),
                                              lineHeight: 1,
                                           }}
                                        >
-                                          <span>{tag.price || '0'}</span>
-                                          <span
-                                             style={{ marginLeft: '0.14em' }}
-                                          >
+                                          <span>{tag.price}</span>
+                                          <span style={{ marginLeft: '0.14em' }}>
                                              {tag.currency || '₽'}
                                           </span>
                                        </div>
 
+                                       {/* ВЕС */}
                                        {cleanItemWeight &&
                                           (() => {
-                                             const weightStyles =
-                                                getWeightColors(
-                                                   itemWeightBrightness,
-                                                   false
-                                                )
+                                             const weightStyles = getWeightColors(
+                                                itemWeightBrightness,
+                                                false
+                                             )
                                              return (
                                                 <div
-                                                   className='ml-1.5 -mt-0.5 rounded-full italic tracking-wide flex items-center justify-center shrink-0'
+                                                   className='ml-1.5 sm:ml-2 -mt-0.5 sm:-mt-1 rounded-full italic tracking-wide flex items-center justify-center shrink-0'
                                                    style={{
-                                                      fontSize:
-                                                         pxToCqi(
-                                                            itemWeightFontSize
-                                                         ),
+                                                      fontSize: pxToCqi(itemWeightFontSize),
                                                       lineHeight: 1.1,
-                                                      fontFamily:
-                                                         '"Onest", sans-serif',
-                                                      fontWeight:
-                                                         weightStyles.fontWeight,
+                                                      fontFamily: '"Onest", sans-serif',
+                                                      fontWeight: weightStyles.fontWeight,
                                                       color: weightStyles.color,
                                                       border: `1px solid ${weightStyles.borderColor}`,
                                                       padding: `${pxToCqi(Math.round(itemWeightFontSize * 0.18))} ${pxToCqi(Math.round(itemWeightFontSize * 0.52))}`,
@@ -3464,13 +3533,18 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
                                        tag.weight
                                     )
                                     const printScale = 0.369 // 100mm / 1024px ≈ 0.369px per base px на листе печати А4
+                                    const itemLayout = computeDynamicTitleLayout(
+                                       tag.title,
+                                       tag.description
+                                    )
                                     const printTitleFontSize = Math.round(
                                        (tag.titleFontSize ||
-                                          computeDynamicTitleFontSize(
-                                             tag.title,
-                                             tag.description
-                                          )) * printScale
+                                          itemLayout.fontSize) * printScale
                                     )
+                                    const printTitleTopPercent =
+                                       itemLayout.dynamicTitleTopPercent
+                                    const printPriceTopPercent =
+                                       itemLayout.dynamicPriceTopPercent
                                     const printPriceFontSize = Math.round(
                                        (tag.priceFontSize ||
                                           computeDynamicPriceFontSize(
@@ -3551,55 +3625,45 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
                                        >
                                           {/* Название и описание */}
                                           <div
-                                             className='absolute left-[4.8%] top-[5.5%] max-w-[90%]'
+                                             className='absolute left-[4.8%] max-w-[90%]'
                                              style={{
-                                                color: isEco
-                                                   ? '#000000'
-                                                   : '#ffffff',
-                                                fontFamily:
-                                                   '"Onest", sans-serif',
-                                                fontStyle: tag.isItalic
-                                                   ? 'italic'
-                                                   : 'normal',
+                                                top: printTitleTopPercent + '%',
+                                                color: isEco ? '#000000' : '#ffffff',
+                                                fontFamily: '"Onest", sans-serif',
+                                                fontStyle: tag.isItalic ? 'italic' : 'normal',
                                                 fontWeight: 700,
                                                 textTransform: 'uppercase',
-                                                lineHeight: 1.06,
-                                                fontSize:
-                                                   printTitleFontSize + 'px',
-                                                transform:
-                                                   'translate(' +
-                                                   printTitleOffsetX +
-                                                   'px, ' +
-                                                   printTitleOffsetY +
-                                                   'px)',
+                                                lineHeight: 1.08,
+                                                fontSize: printTitleFontSize + 'px',
+                                                transform: 'translate(' + printTitleOffsetX + 'px, ' + printTitleOffsetY + 'px)',
                                                 maxWidth: '90.4%',
-                                                wordBreak: 'break-word',
-                                                overflowWrap: 'anywhere',
+                                                wordBreak: 'normal',
+                                                overflowWrap: 'normal',
                                              }}
                                           >
                                              <div className='tracking-tight'>
-                                                <span>{tag.title}</span>
-                                                {tag.description && (
-                                                   <>
-                                                      {' '}
-                                                      <span>
-                                                         (
-                                                         <span
-                                                            style={{
-                                                               textDecoration:
-                                                                  tag.underlineDescription
-                                                                     ? 'underline'
-                                                                     : 'none',
-                                                               textUnderlineOffset:
-                                                                  '3px',
-                                                            }}
-                                                         >
-                                                            {tag.description}
+                                                {itemLayout.lines.map((lineTokens, lineIdx) => (
+                                                   <div key={`pr-l-${lineIdx}`} style={{ whiteSpace: 'nowrap' }}>
+                                                      {lineTokens.map((token, tIdx) => (
+                                                         <span key={`pr-t-${tIdx}`}>
+                                                            {tIdx > 0 ? ' ' : ''}
+                                                            {token.prefix || ''}
+                                                            <span
+                                                               style={{
+                                                                  textDecoration:
+                                                                     token.isDesc && tag.underlineDescription
+                                                                        ? 'underline'
+                                                                        : 'none',
+                                                                  textUnderlineOffset: '3px',
+                                                               }}
+                                                            >
+                                                               {token.text}
+                                                            </span>
+                                                            {token.suffix || ''}
                                                          </span>
-                                                         )
-                                                      </span>
-                                                   </>
-                                                )}
+                                                      ))}
+                                                   </div>
+                                                ))}
                                              </div>
                                           </div>
 
@@ -3607,68 +3671,52 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
                                           <div
                                              className='absolute inset-x-0 bottom-0 top-[12%] flex items-center justify-end'
                                              style={{
-                                                paddingRight: cleanItemWeight
-                                                   ? '1.5%'
-                                                   : '3.5%',
+                                                paddingRight: cleanItemWeight ? '1.5%' : '3.5%',
                                              }}
                                           >
                                              <div
                                                 className='flex items-start justify-end'
                                                 style={{
-                                                   transform:
-                                                      'translate(' +
-                                                      printPriceOffsetX +
-                                                      'px, ' +
-                                                      printPriceOffsetY +
-                                                      'px)',
+                                                   transform: 'translate(' + printPriceOffsetX + 'px, ' + printPriceOffsetY + 'px)',
                                                 }}
                                              >
                                                 <div
                                                    className='flex items-baseline font-black tracking-tight'
                                                    style={{
-                                                      fontSize:
-                                                         printPriceFontSize +
-                                                         'px',
-                                                      color: isEco
-                                                         ? '#000000'
-                                                         : '#ffffff',
-                                                      fontFamily:
-                                                         '"Onest", sans-serif',
+                                                      fontSize: printPriceFontSize + 'px',
+                                                      color: isEco ? '#000000' : '#ffffff',
+                                                      fontFamily: '"Onest", sans-serif',
                                                       lineHeight: 1,
                                                    }}
                                                 >
                                                    <span>{tag.price}</span>
-                                                   <span
-                                                      style={{
-                                                         marginLeft: '0.14em',
-                                                      }}
-                                                   >
-                                                      {tag.currency}
+                                                   <span style={{ marginLeft: '0.14em' }}>
+                                                      {tag.currency || '₽'}
                                                    </span>
                                                 </div>
+
+                                                {/* Вес */}
                                                 {cleanItemWeight &&
                                                    (() => {
-                                                      const weightStyles =
-                                                         getWeightColors(
-                                                            printWeightBrightness,
-                                                            isEco
-                                                         )
+                                                      const weightStyles = getWeightColors(
+                                                         printWeightBrightness,
+                                                         isEco
+                                                      )
                                                       return (
                                                          <div
-                                                            className='ml-2 -mt-1 px-2.5 py-0.5 rounded-full border italic flex items-center justify-center shrink-0'
+                                                            className='ml-1.5 -mt-0.5 rounded-full italic tracking-wide flex items-center justify-center shrink-0'
                                                             style={{
-                                                               fontSize:
-                                                                  printWeightFontSize +
-                                                                  'px',
-                                                               borderWidth:
-                                                                  '1px',
-                                                               borderColor:
-                                                                  weightStyles.borderColor,
+                                                               fontSize: printWeightFontSize + 'px',
+                                                               lineHeight: 1.1,
+                                                               fontFamily: '"Onest", sans-serif',
+                                                               fontWeight: weightStyles.fontWeight,
                                                                color: weightStyles.color,
-                                                               fontFamily:
-                                                                  '"Onest", sans-serif',
-                                                               fontWeight:
-                                                                  weightStyles.fontWeight,
+                                                               border: '1px solid ' + weightStyles.borderColor,
+                                                               padding:
+                                                                  Math.round(printWeightFontSize * 0.18) +
+                                                                  'px ' +
+                                                                  Math.round(printWeightFontSize * 0.52) +
+                                                                  'px',
                                                                transform:
                                                                   'translate(' +
                                                                   printWeightOffsetX +
