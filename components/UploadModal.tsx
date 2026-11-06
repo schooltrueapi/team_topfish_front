@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useState, useMemo } from 'react'
 import api from '@/lib/api'
 import toast from 'react-hot-toast'
 import {
@@ -10,7 +10,11 @@ import {
    Sparkles,
    CheckCircle2,
    Zap,
+   Calendar,
+   Clock,
+   History,
 } from 'lucide-react'
+import { extractDateFromFileName, getISOWeekInfo } from '@/lib/dateUtils'
 
 interface UploadModalProps {
    isOpen: boolean
@@ -36,6 +40,18 @@ interface PendingConfirmation {
    stats?: any
 }
 
+function pad2(n: number) {
+   return n.toString().padStart(2, '0')
+}
+
+function toDateInputString(d: Date): string {
+   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
+}
+
+function toTimeInputString(d: Date): string {
+   return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`
+}
+
 export default function UploadModal({
    isOpen,
    onClose,
@@ -50,6 +66,36 @@ export default function UploadModal({
    const [isAutoSync, setIsAutoSync] = useState<boolean>(autoSyncPrice)
    const [pendingConfirmation, setPendingConfirmation] =
       useState<PendingConfirmation | null>(null)
+
+   const [dateStr, setDateStr] = useState<string>(() =>
+      toDateInputString(new Date())
+   )
+   const [timeStr, setTimeStr] = useState<string>(() =>
+      toTimeInputString(new Date())
+   )
+   const [autoDetected, setAutoDetected] = useState<{
+      detected: boolean
+      date: Date | null
+   }>({
+      detected: false,
+      date: null,
+   })
+
+   const currentTargetDate = useMemo(() => {
+      if (!dateStr) return new Date()
+      const [y, m, d] = dateStr.split('-').map(Number)
+      const [hh, mm] = (timeStr || '12:00').split(':').map(Number)
+      return new Date(y, (m || 1) - 1, d || 1, hh || 12, mm || 0)
+   }, [dateStr, timeStr])
+
+   const weekInfo = useMemo(() => {
+      return getISOWeekInfo(currentTargetDate)
+   }, [currentTargetDate])
+
+   const isPastDate = useMemo(() => {
+      const now = new Date()
+      return currentTargetDate.getTime() < now.getTime() - 2 * 60 * 60 * 1000
+   }, [currentTargetDate])
 
    // Синхронизируем с внешним пропом, если он меняется
    React.useEffect(() => {
@@ -70,6 +116,21 @@ export default function UploadModal({
          if (ext === 'xlsx' || ext === 'xls') {
             setFile(selected)
             setPendingConfirmation(null)
+
+            const extracted = extractDateFromFileName(selected.name)
+            if (extracted) {
+               setDateStr(toDateInputString(extracted))
+               setTimeStr(toTimeInputString(extracted))
+               setAutoDetected({ detected: true, date: extracted })
+               const isHistorical =
+                  extracted.getTime() <
+                  new Date().getTime() - 2 * 60 * 60 * 1000
+               if (isHistorical) {
+                  setIsAutoSync(false)
+               }
+            } else {
+               setAutoDetected({ detected: false, date: null })
+            }
          } else {
             toast.error('Поддерживаются только файлы Excel (.xlsx, .xls)')
          }
@@ -88,6 +149,7 @@ export default function UploadModal({
          formData.append('file', file)
          formData.append('fileName', file.name)
          formData.append('weekId', weekId)
+         formData.append('customDate', currentTargetDate.toISOString())
          formData.append('clearExisting', String(clearExisting))
          formData.append('autoSyncPrice', String(isAutoSync))
          if (force) {
@@ -286,6 +348,89 @@ export default function UploadModal({
                         <p className='text-xs text-slate-400 mt-1'>
                            Формат .xlsx или .xls (размер до 50 МБ)
                         </p>
+                     </div>
+
+                     {/* Авто-распознавание даты из названия */}
+                     {autoDetected.detected && (
+                        <div className='p-3 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center gap-2 text-xs text-emerald-800'>
+                           <Sparkles className='w-4 h-4 text-emerald-600 shrink-0' />
+                           <div>
+                              <span className='font-bold'>
+                                 Дата определена из названия файла:
+                              </span>{' '}
+                              <span>
+                                 {currentTargetDate.toLocaleDateString(
+                                    'ru-RU',
+                                    {
+                                       day: '2-digit',
+                                       month: '2-digit',
+                                       year: 'numeric',
+                                    }
+                                 )}
+                                 , {timeStr}
+                              </span>
+                           </div>
+                        </div>
+                     )}
+
+                     {/* Выбор даты и времени выгрузки */}
+                     <div className='bg-slate-50 border border-slate-200 rounded-xl p-3.5 space-y-2.5'>
+                        <div className='flex items-center justify-between'>
+                           <span className='text-xs font-bold text-slate-700 flex items-center gap-1.5'>
+                              <Calendar className='w-3.5 h-3.5 text-teal-600' />
+                              Дата и время выгрузки 1С:
+                           </span>
+                           <span className='text-[10px] font-bold px-2 py-0.5 rounded-full bg-teal-100 text-teal-800 border border-teal-200'>
+                              Неделя №{weekInfo.weekNumber} ({weekInfo.year})
+                           </span>
+                        </div>
+
+                        <div className='grid grid-cols-2 gap-2.5'>
+                           <div>
+                              <label className='block text-[10px] font-semibold text-slate-500 mb-1'>
+                                 Дата документа
+                              </label>
+                              <input
+                                 type='date'
+                                 value={dateStr}
+                                 onChange={(e) => {
+                                    setDateStr(e.target.value)
+                                    setAutoDetected({
+                                       detected: false,
+                                       date: null,
+                                    })
+                                 }}
+                                 className='w-full px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs font-semibold text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-teal-500'
+                              />
+                           </div>
+                           <div>
+                              <label className='block text-[10px] font-semibold text-slate-500 mb-1'>
+                                 Время
+                              </label>
+                              <input
+                                 type='time'
+                                 value={timeStr}
+                                 onChange={(e) => {
+                                    setTimeStr(e.target.value)
+                                    setAutoDetected({
+                                       detected: false,
+                                       date: null,
+                                    })
+                                 }}
+                                 className='w-full px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs font-semibold text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-teal-500'
+                              />
+                           </div>
+                        </div>
+
+                        {isPastDate && (
+                           <div className='pt-1 text-[11px] text-amber-700 flex items-center gap-1.5'>
+                              <History className='w-3.5 h-3.5 text-amber-600 shrink-0' />
+                              <span>
+                                 Историческая дата: авто-синхронизация с
+                                 витриной сайта отключена
+                              </span>
+                           </div>
+                        )}
                      </div>
 
                      <div className='bg-blue-50 border border-blue-200 rounded-xl p-3.5 text-xs text-blue-900 space-y-1'>

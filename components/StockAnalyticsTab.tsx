@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import api from '@/lib/api';
 import PositionHistoryModal from './PositionHistoryModal';
+import DateUploadModal from './DateUploadModal';
 import toast from 'react-hot-toast';
 import {
   BarChart3,
@@ -31,6 +32,9 @@ import {
   FileDown,
   History,
   Layers,
+  Plus,
+  Trash2,
+  CalendarCheck,
 } from 'lucide-react';
 
 // ─── Типы ──────────────────────────────────────────────────────────────────
@@ -215,6 +219,12 @@ export default function StockAnalyticsTab() {
   const [uploads, setUploads] = useState<UploadRecord[]>([]);
   const [uploadsLoading, setUploadsLoading] = useState(true);
 
+  // Модальное окно загрузки файла на выбранную дату
+  const [isDateUploadOpen, setIsDateUploadOpen] = useState(false);
+  const [selectedGapDate, setSelectedGapDate] = useState<Date | null>(null);
+  const [selectedGapWeekId, setSelectedGapWeekId] = useState<string | undefined>(undefined);
+  const [deletingFile, setDeletingFile] = useState<string | null>(null);
+
   // Модальное окно истории позиции
   const [selectedPosition, setSelectedPosition] = useState<string | null>(null);
 
@@ -352,6 +362,40 @@ export default function StockAnalyticsTab() {
     }
   };
 
+  const handleDeleteUpload = async (u: UploadRecord) => {
+    const dStr = u.uploadedAt
+      ? new Date(u.uploadedAt).toLocaleDateString('ru-RU', {
+          day: '2-digit',
+          month: '2-digit',
+          year: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+        })
+      : '';
+    const confirmMsg = `Удалить выгрузку "${u.fileName}" (${dStr})?\n\nВнимание: точка остатков на эту дату будет удалена из графиков динамики.`;
+    if (!window.confirm(confirmMsg)) return;
+
+    try {
+      const fileKey = u.savedExcelFile || u.uploadedAt;
+      setDeletingFile(fileKey);
+      await api.delete('/api/stock-analytics/upload', {
+        data: {
+          weekId: u.weekId,
+          savedExcelFile: u.savedExcelFile,
+          fileName: u.fileName,
+          uploadedAt: u.uploadedAt,
+        },
+      });
+      toast.success('Выгрузка успешно удалена');
+      loadUploads();
+      loadPositions(positionsPage);
+    } catch (err: any) {
+      toast.error(err.response?.data?.error || 'Ошибка удаления файла');
+    } finally {
+      setDeletingFile(null);
+    }
+  };
+
   const formatDate = (s: string) => {
     if (!s) return '—';
     return new Date(s).toLocaleDateString('ru-RU', {
@@ -365,6 +409,15 @@ export default function StockAnalyticsTab() {
 
   const formatKg = (v: number) =>
     new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 1 }).format(v) + ' кг';
+
+  const formatDaysPlural = (count: number) => {
+    const mod10 = count % 10;
+    const mod100 = count % 100;
+    if (mod100 >= 11 && mod100 <= 19) return `${count} дней`;
+    if (mod10 === 1) return `${count} день`;
+    if (mod10 >= 2 && mod10 <= 4) return `${count} дня`;
+    return `${count} дней`;
+  };
 
   const weekStatusLabel: Record<string, string> = {
     PLANNING: 'Планирование',
@@ -775,18 +828,35 @@ export default function StockAnalyticsTab() {
       {/* ══ Секция «Загруженные файлы» ══ */}
       {activeSection === 'uploads' && (
         <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <p className="text-sm text-slate-500">
-              Все файлы 1С, загруженные в систему. Файлы, загруженные после обновления, доступны для скачивания.
-            </p>
-            <button
-              onClick={loadUploads}
-              disabled={uploadsLoading}
-              className="p-2 rounded-xl bg-white border border-slate-200 hover:bg-slate-50 text-slate-600 transition cursor-pointer disabled:opacity-50"
-              title="Обновить список"
-            >
-              <RefreshCw className={`w-4 h-4 ${uploadsLoading ? 'animate-spin text-cyan-500' : ''}`} />
-            </button>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-slate-200">
+            <div>
+              <h3 className="font-bold text-slate-800 text-sm">История всех выгрузок 1С</h3>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Загружайте ежедневные файлы для непрерывной аналитики и отслеживания тенденций продаж
+              </p>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                onClick={() => {
+                  setSelectedGapDate(null);
+                  setSelectedGapWeekId(undefined);
+                  setIsDateUploadOpen(true);
+                }}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-teal-500 to-emerald-600 hover:from-teal-600 hover:to-emerald-700 text-white font-bold text-xs shadow-md shadow-teal-500/20 transition cursor-pointer"
+              >
+                <Plus className="w-4 h-4" />
+                <Calendar className="w-4 h-4" />
+                <span>Загрузить файл на дату</span>
+              </button>
+              <button
+                onClick={loadUploads}
+                disabled={uploadsLoading}
+                className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 hover:bg-slate-100 text-slate-600 transition cursor-pointer disabled:opacity-50"
+                title="Обновить список"
+              >
+                <RefreshCw className={`w-4 h-4 ${uploadsLoading ? 'animate-spin text-cyan-500' : ''}`} />
+              </button>
+            </div>
           </div>
 
           {uploadsLoading ? (
@@ -797,89 +867,173 @@ export default function StockAnalyticsTab() {
           ) : uploads.length === 0 ? (
             <div className="text-center py-16 text-slate-400 bg-white rounded-2xl border border-slate-200">
               <FileSpreadsheet className="w-10 h-10 mx-auto mb-3 opacity-30" />
-              <p className="font-semibold">Файлы ещё не загружались</p>
+              <p className="font-semibold text-slate-700">Файлы ещё не загружались</p>
+              <p className="text-xs text-slate-400 mt-1 mb-4">
+                Загрузите первый файл 1С для начала сбора истории остатков
+              </p>
+              <button
+                onClick={() => {
+                  setSelectedGapDate(null);
+                  setSelectedGapWeekId(undefined);
+                  setIsDateUploadOpen(true);
+                }}
+                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold transition shadow-md shadow-teal-600/20 cursor-pointer"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Загрузить файл 1С</span>
+              </button>
             </div>
           ) : (
             <div className="space-y-2">
-              {uploads.map((u, idx) => (
-                <div
-                  key={`${u.weekId}-${u.savedExcelFile || u.uploadedAt}-${idx}`}
-                  className="bg-white rounded-2xl border border-slate-200 shadow-xs p-4 flex flex-col sm:flex-row sm:items-start gap-4"
-                >
-                  {/* Иконка файла */}
-                  <div className="w-11 h-11 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center justify-center shrink-0">
-                    <FileSpreadsheet className="w-5 h-5 text-emerald-600" />
-                  </div>
+              {uploads.map((u, idx) => {
+                // Вычисляем пропуск между текущим и следующим (более ранним) файлом строго по календарным дням
+                const currentUploadedAt = u.uploadedAt ? new Date(u.uploadedAt) : null;
+                const nextUploadedAt = uploads[idx + 1]?.uploadedAt ? new Date(uploads[idx + 1].uploadedAt) : null;
 
-                  {/* Информация */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap mb-1">
-                      <span className="font-bold text-slate-800 truncate max-w-xs">{u.fileName}</span>
-                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${weekStatusColor[u.weekStatus] || 'bg-slate-100 text-slate-500 border-slate-200'}`}>
-                        {weekStatusLabel[u.weekStatus] || u.weekStatus}
-                      </span>
-                    </div>
+                let gapDays = 0;
+                let gapStartDateStr = '';
+                let gapEndDateStr = '';
+                let suggestedGapDate: Date | null = null;
 
-                    <div className="flex items-center gap-4 text-xs text-slate-500 flex-wrap">
-                      <span className="flex items-center gap-1">
-                        <Calendar className="w-3 h-3" />
-                        Неделя №{u.weekNumber} ({u.year})
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <Clock className="w-3 h-3" />
-                        {formatDate(u.uploadedAt)}
-                      </span>
-                    </div>
+                if (currentUploadedAt && nextUploadedAt) {
+                  const currentDay = new Date(currentUploadedAt.getFullYear(), currentUploadedAt.getMonth(), currentUploadedAt.getDate());
+                  const prevDay = new Date(nextUploadedAt.getFullYear(), nextUploadedAt.getMonth(), nextUploadedAt.getDate());
 
-                    {/* Статистика загрузки */}
-                    {u.stats && (
-                      <div className="flex items-center gap-3 mt-2 flex-wrap">
-                        <span className="text-xs bg-slate-50 border border-slate-200 px-2 py-0.5 rounded-full text-slate-600 font-medium">
-                          Всего: {u.stats.total} поз.
-                        </span>
-                        {u.stats.novelties > 0 && (
-                          <span className="text-xs bg-teal-50 border border-teal-200 px-2 py-0.5 rounded-full text-teal-700 font-medium">
-                            Новинок: {u.stats.novelties}
+                  const dayDiff = Math.round((currentDay.getTime() - prevDay.getTime()) / (1000 * 60 * 60 * 24));
+                  const missingCount = dayDiff - 1;
+
+                  if (missingCount >= 1) {
+                    gapDays = missingCount;
+                    const startD = new Date(prevDay.getFullYear(), prevDay.getMonth(), prevDay.getDate() + 1);
+                    const endD = new Date(currentDay.getFullYear(), currentDay.getMonth(), currentDay.getDate() - 1);
+
+                    gapStartDateStr = startD.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' });
+                    gapEndDateStr = endD.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' });
+
+                    // Предлагаем загрузить первый пропущенный день
+                    suggestedGapDate = startD;
+                  }
+                }
+
+                const fileKey = u.savedExcelFile || u.uploadedAt;
+                const isDeleting = deletingFile === fileKey;
+
+                return (
+                  <React.Fragment key={`${u.weekId}-${u.savedExcelFile || u.uploadedAt}-${idx}`}>
+                    <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-4 flex flex-col sm:flex-row sm:items-start gap-4">
+                      {/* Иконка файла */}
+                      <div className="w-11 h-11 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center justify-center shrink-0">
+                        <FileSpreadsheet className="w-5 h-5 text-emerald-600" />
+                      </div>
+
+                      {/* Информация */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap mb-1">
+                          <span className="font-bold text-slate-800 truncate max-w-xs">{u.fileName}</span>
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${weekStatusColor[u.weekStatus] || 'bg-slate-100 text-slate-500 border-slate-200'}`}>
+                            {weekStatusLabel[u.weekStatus] || u.weekStatus}
                           </span>
-                        )}
-                        {u.stats.outOfStock > 0 && (
-                          <span className="text-xs bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-full text-rose-700 font-medium">
-                            Под заказ: {u.stats.outOfStock}
+                        </div>
+
+                        <div className="flex items-center gap-4 text-xs text-slate-500 flex-wrap">
+                          <span className="flex items-center gap-1">
+                            <Calendar className="w-3 h-3" />
+                            Неделя №{u.weekNumber} ({u.year})
                           </span>
-                        )}
-                        {u.changes && u.changes.priceChangesCount > 0 && (
-                          <span className="text-xs bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full text-amber-700 font-medium">
-                            Цены: {u.changes.priceChangesCount}
+                          <span className="flex items-center gap-1">
+                            <Clock className="w-3 h-3" />
+                            {formatDate(u.uploadedAt)}
                           </span>
-                        )}
-                        {u.changes && u.changes.hitsCount > 0 && (
-                          <span className="text-xs bg-orange-50 border border-orange-200 px-2 py-0.5 rounded-full text-orange-700 font-medium">
-                            🔥 Хиты: {u.changes.hitsCount}
-                          </span>
+                        </div>
+
+                        {/* Статистика загрузки */}
+                        {u.stats && (
+                          <div className="flex items-center gap-3 mt-2 flex-wrap">
+                            <span className="text-xs bg-slate-50 border border-slate-200 px-2 py-0.5 rounded-full text-slate-600 font-medium">
+                              Всего: {u.stats.total} поз.
+                            </span>
+                            {u.stats.novelties > 0 && (
+                              <span className="text-xs bg-teal-50 border border-teal-200 px-2 py-0.5 rounded-full text-teal-700 font-medium">
+                                Новинок: {u.stats.novelties}
+                              </span>
+                            )}
+                            {u.stats.outOfStock > 0 && (
+                              <span className="text-xs bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-full text-rose-700 font-medium">
+                                Под заказ: {u.stats.outOfStock}
+                              </span>
+                            )}
+                            {u.changes && u.changes.priceChangesCount > 0 && (
+                              <span className="text-xs bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full text-amber-700 font-medium">
+                                Цены: {u.changes.priceChangesCount}
+                              </span>
+                            )}
+                            {u.changes && u.changes.hitsCount > 0 && (
+                              <span className="text-xs bg-orange-50 border border-orange-200 px-2 py-0.5 rounded-full text-orange-700 font-medium">
+                                🔥 Хиты: {u.changes.hitsCount}
+                              </span>
+                            )}
+                          </div>
                         )}
                       </div>
-                    )}
-                  </div>
 
-                  {/* Кнопка скачивания */}
-                  <div className="shrink-0">
-                    {u.canDownload ? (
-                      <button
-                        onClick={() => handleDownloadFile(u.savedExcelFile!, u.fileName)}
-                        className="flex items-center gap-2 px-4 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-600 text-white text-xs font-bold shadow-sm shadow-cyan-500/25 transition cursor-pointer"
-                      >
-                        <Download className="w-3.5 h-3.5" />
-                        Скачать
-                      </button>
-                    ) : (
-                      <div className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-slate-400 text-xs">
-                        <AlertTriangle className="w-3 h-3" />
-                        Файл не сохранён
+                      {/* Кнопки действий */}
+                      <div className="shrink-0 flex items-center gap-2 self-start sm:self-center">
+                        {u.canDownload ? (
+                          <button
+                            onClick={() => handleDownloadFile(u.savedExcelFile!, u.fileName)}
+                            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-600 text-white text-xs font-bold shadow-sm shadow-cyan-500/25 transition cursor-pointer"
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                            Скачать
+                          </button>
+                        ) : (
+                          <div className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-slate-400 text-xs">
+                            <AlertTriangle className="w-3 h-3" />
+                            Файл не сохранён
+                          </div>
+                        )}
+
+                        <button
+                          onClick={() => handleDeleteUpload(u)}
+                          disabled={isDeleting}
+                          className="p-2 rounded-xl border border-slate-200 hover:border-rose-300 hover:bg-rose-50 text-slate-400 hover:text-rose-600 transition cursor-pointer disabled:opacity-40"
+                          title="Удалить выгрузку из истории"
+                        >
+                          {isDeleting ? (
+                            <div className="w-3.5 h-3.5 border-2 border-rose-600 border-t-transparent rounded-full animate-spin" />
+                          ) : (
+                            <Trash2 className="w-3.5 h-3.5" />
+                          )}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Разделитель-уведомление о пропущенных днях */}
+                    {gapDays >= 1 && (
+                      <div className="my-2 p-3 rounded-2xl bg-gradient-to-r from-amber-50/90 via-orange-50/70 to-amber-50/90 border border-dashed border-amber-300 shadow-2xs flex items-center justify-between gap-3 flex-wrap animate-in fade-in duration-200">
+                        <div className="flex items-center gap-2.5 text-xs text-amber-900">
+                          <span className="w-2.5 h-2.5 rounded-full bg-amber-500 shrink-0" />
+                          <span>
+                            <strong>Пропуск выгрузки: {formatDaysPlural(gapDays)}</strong>
+                            {' '}без данных ({gapDays === 1 ? gapStartDateStr : `${gapStartDateStr} — ${gapEndDateStr}`})
+                          </span>
+                        </div>
+                        <button
+                          onClick={() => {
+                            setSelectedGapDate(suggestedGapDate);
+                            setSelectedGapWeekId(u.weekId);
+                            setIsDateUploadOpen(true);
+                          }}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold text-[11px] shadow-sm shadow-amber-500/20 transition cursor-pointer"
+                        >
+                          <Plus className="w-3 h-3" />
+                          <span>Заполнить пропуск на {gapStartDateStr}</span>
+                        </button>
                       </div>
                     )}
-                  </div>
-                </div>
-              ))}
+                  </React.Fragment>
+                );
+              })}
             </div>
           )}
 
@@ -894,6 +1048,24 @@ export default function StockAnalyticsTab() {
             </div>
           )}
         </div>
+      )}
+
+      {/* Модальное окно загрузки файла на выбранную дату */}
+      {isDateUploadOpen && (
+        <DateUploadModal
+          isOpen={isDateUploadOpen}
+          onClose={() => {
+            setIsDateUploadOpen(false);
+            setSelectedGapDate(null);
+            setSelectedGapWeekId(undefined);
+          }}
+          onSuccess={() => {
+            loadUploads();
+            loadPositions(positionsPage);
+          }}
+          initialDate={selectedGapDate || undefined}
+          initialWeekId={selectedGapWeekId}
+        />
       )}
 
       {/* Модальное окно истории позиции */}
