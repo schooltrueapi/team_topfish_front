@@ -101,6 +101,25 @@ export default function DashboardPage() {
       }
    }, [user, loading])
 
+   // Мгновенное восстановление данных производственного плана из кэша (0 сек задержки)
+   useEffect(() => {
+      try {
+         const cachedData = localStorage.getItem('topfish_cached_current_week_data')
+         if (cachedData) {
+            const parsed = JSON.parse(cachedData)
+            if (
+               parsed?.currentWeek &&
+               Array.isArray(parsed?.items) &&
+               parsed.items.length > 0
+            ) {
+               setCurrentWeek(parsed.currentWeek)
+               setItems(parsed.items)
+               setIsInitialLoading(false)
+            }
+         }
+      } catch (e) {}
+   }, [])
+
    // Восстановление активной вкладки из localStorage при монтировании
    useEffect(() => {
       try {
@@ -212,11 +231,19 @@ export default function DashboardPage() {
    const fetchCurrentWeek = async (isBackground = false) => {
       try {
          if (!isBackground) {
-            setIsInitialLoading(true)
+            // Если данные уже есть (например, из кэша), не блокируем экран лоадером
+            setItems((prev) => {
+               if (prev.length === 0) {
+                  setIsInitialLoading(true)
+               }
+               return prev
+            })
          }
          const res = await api.get('/api/weeks/current')
-         fetchWeeksHistory()
-         fetchTrialStats()
+         if (!isBackground) {
+            fetchWeeksHistory()
+            fetchTrialStats()
+         }
          if (res.data.needsReview) {
             setNeedsReview(true)
             setReviewWeek(res.data.reviewWeek)
@@ -236,34 +263,38 @@ export default function DashboardPage() {
                const regularItems: PlanItem[] =
                   res.data.currentWeek?.items || []
 
-               // Загружаем новинки в отработке на эту неделю, чтобы отобразить их прямо в основном плане чеклиста
+               // Загружаем новинки в отработке: берем сразу из ответа бэкенда (trialItems), исключая лишний HTTP-запрос
                let inTrialItems: PlanItem[] = []
-               try {
-                  const trialRes = await api.get('/api/trial-novelties', {
-                     params: {
-                        status: 'IN_TRIAL',
-                        weekId: res.data.currentWeek?.id,
-                     },
-                  })
-                  const trialNovelties = trialRes.data?.items || []
-                  inTrialItems = trialNovelties.map((tn: any) => ({
-                     id: `trial_${tn.id}`,
-                     trialNoveltyId: tn.id,
-                     isTrialNovelty: true,
-                     productName: tn.name,
-                     category: tn.category || 'Новинки (отработка)',
-                     price: null,
-                     stockKg: null,
-                     isNew: true,
-                     isPlanned: true,
-                     imageUrl: tn.imageUrl,
-                     resultStatus: tn.resultStatus,
-                     reasonComment: tn.resultComment,
-                     createdBy: tn.createdBy,
-                     createdAt: tn.plannedAt || tn.createdAt,
-                     updatedAt: tn.updatedAt,
-                  }))
-               } catch (e) {}
+               if (Array.isArray(res.data.currentWeek?.trialItems)) {
+                  inTrialItems = res.data.currentWeek.trialItems
+               } else {
+                  try {
+                     const trialRes = await api.get('/api/trial-novelties', {
+                        params: {
+                           status: 'IN_TRIAL',
+                           weekId: res.data.currentWeek?.id,
+                        },
+                     })
+                     const trialNovelties = trialRes.data?.items || []
+                     inTrialItems = trialNovelties.map((tn: any) => ({
+                        id: `trial_${tn.id}`,
+                        trialNoveltyId: tn.id,
+                        isTrialNovelty: true,
+                        productName: tn.name,
+                        category: tn.category || 'Новинки (отработка)',
+                        price: null,
+                        stockKg: null,
+                        isNew: true,
+                        isPlanned: true,
+                        imageUrl: tn.imageUrl,
+                        resultStatus: tn.resultStatus,
+                        reasonComment: tn.resultComment,
+                        createdBy: tn.createdBy,
+                        createdAt: tn.plannedAt || tn.createdAt,
+                        updatedAt: tn.updatedAt,
+                     }))
+                  } catch (e) {}
+               }
 
                const newItems: PlanItem[] = [...inTrialItems, ...regularItems]
                if (isBackground) {
@@ -291,6 +322,17 @@ export default function DashboardPage() {
                } else {
                   setItems(newItems)
                }
+
+               // Кэшируем актуальные данные для мгновенного старта при следующем открытии
+               try {
+                  localStorage.setItem(
+                     'topfish_cached_current_week_data',
+                     JSON.stringify({
+                        currentWeek: res.data.currentWeek,
+                        items: newItems,
+                     })
+                  )
+               } catch (e) {}
             }
 
             if (res.data.currentWeek?.id) {
@@ -397,7 +439,7 @@ export default function DashboardPage() {
          selectedWeekId && currentWeek && selectedWeekId !== currentWeek.id
       ) || displayWeek?.status === 'CLOSED'
 
-   // Периодическая фоновая синхронизация данных (каждые 5 сек), чтобы изменения от других пользователей
+   // Периодическая фоновая синхронизация данных (каждые 15 сек), чтобы изменения от других пользователей
    // (например, Технолога на другом компьютере) сразу появлялись на экране без перезагрузки
    useEffect(() => {
       if (!user || isViewingArchive) return
@@ -409,7 +451,7 @@ export default function DashboardPage() {
          ) {
             fetchCurrentWeek(true)
          }
-      }, 5000)
+      }, 15000)
 
       const handleFocusOrVisible = () => {
          if (
