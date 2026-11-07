@@ -215,41 +215,20 @@ export default function InventoryTab() {
   // Скачивание оригинального файла
   const handleDownloadFile = async (id: string, fallbackName?: string) => {
     try {
-      toast.loading('Подготовка файла...', { id: 'download_file' });
-      const resp = await api.get(`/api/inventory/download/${id}`, {
-        responseType: 'blob',
-      });
+      const token = typeof window !== 'undefined' ? localStorage.getItem('topfish_control_token') : null;
+      const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4001';
+      const downloadUrl = `${apiBase}/api/inventory/download/${encodeURIComponent(id)}${token ? `?token=${encodeURIComponent(token)}` : ''}`;
 
-      const blob = new Blob([resp.data], {
-        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      });
-      const blobUrl = URL.createObjectURL(blob);
       const link = document.createElement('a');
-
-      let dlName = fallbackName || 'Инвентаризация.xlsx';
-      const cd = resp.headers?.['content-disposition'] || resp.headers?.['Content-Disposition'];
-      if (cd) {
-        const m = cd.match(/filename\*=UTF-8''([^;]+)/i) || cd.match(/filename="?([^";]+)"?/i);
-        if (m && m[1]) {
-          try {
-            dlName = decodeURIComponent(m[1]);
-          } catch {
-            dlName = m[1];
-          }
-        }
-      }
-
-      link.href = blobUrl;
-      link.download = dlName;
+      link.href = downloadUrl;
+      link.setAttribute('download', fallbackName || 'Инвентаризация.xlsx');
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-      URL.revokeObjectURL(blobUrl);
-
-      toast.success('Файл успешно скачан', { id: 'download_file' });
+      toast.success('Скачивание файла началось');
     } catch (err: any) {
       console.error('Download error:', err);
-      toast.error('Не удалось скачать файл', { id: 'download_file' });
+      toast.error('Не удалось скачать файл');
     }
   };
 

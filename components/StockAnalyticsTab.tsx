@@ -308,57 +308,28 @@ export default function StockAnalyticsTab() {
     loadPositions(p, searchQuery, selectedCategory, sortBy, selectedStatus);
   };
 
+  const [downloadingFile, setDownloadingFile] = useState<string | null>(null);
+
   const handleDownloadFile = async (savedExcelFile: string, fallbackName?: string) => {
     try {
+      setDownloadingFile(savedExcelFile);
       const token = typeof window !== 'undefined' ? localStorage.getItem('topfish_control_token') : null;
-      const resp = await api.get(`/api/stock-analytics/download/${encodeURIComponent(savedExcelFile)}`, {
-        responseType: 'blob',
-        params: token ? { token } : undefined,
-      });
+      const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4001';
+      const downloadUrl = `${apiBase}/api/stock-analytics/download/${encodeURIComponent(savedExcelFile)}${token ? `?token=${encodeURIComponent(token)}` : ''}`;
 
-      const blob = new Blob([resp.data], {
-        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      });
-      const blobUrl = URL.createObjectURL(blob);
+      // Прямое нативное скачивание браузером без ожидания и зависания в буфере Axios
       const link = document.createElement('a');
-
-      let dlName = fallbackName || savedExcelFile;
-      const cd = resp.headers?.['content-disposition'] || resp.headers?.['Content-Disposition'];
-      if (cd) {
-        const m = cd.match(/filename\*=UTF-8''([^;]+)/i) || cd.match(/filename="?([^";]+)"?/i);
-        if (m && m[1]) {
-          try {
-            dlName = decodeURIComponent(m[1]);
-          } catch {
-            dlName = m[1];
-          }
-        }
-      } else if (!fallbackName) {
-        const parts = savedExcelFile.split('_');
-        if (parts.length >= 3) {
-          dlName = parts.slice(2).join('_');
-        }
-      }
-
-      link.href = blobUrl;
-      link.download = dlName;
+      link.href = downloadUrl;
+      link.setAttribute('download', fallbackName || savedExcelFile);
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-      URL.revokeObjectURL(blobUrl);
+      toast.success('Скачивание файла началось');
     } catch (err: any) {
       console.error('Download error:', err);
-      if (err?.response?.data instanceof Blob) {
-        try {
-          const text = await err.response.data.text();
-          const j = JSON.parse(text);
-          toast.error(j.error || 'Ошибка скачивания файла');
-          return;
-        } catch {
-          // ignore
-        }
-      }
-      toast.error(err?.response?.data?.error || 'Не удалось скачать файл');
+      toast.error('Не удалось скачать файл');
+    } finally {
+      setTimeout(() => setDownloadingFile(null), 1500);
     }
   };
 
@@ -981,10 +952,20 @@ export default function StockAnalyticsTab() {
                         {u.canDownload ? (
                           <button
                             onClick={() => handleDownloadFile(u.savedExcelFile!, u.fileName)}
-                            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-600 text-white text-xs font-bold shadow-sm shadow-cyan-500/25 transition cursor-pointer"
+                            disabled={downloadingFile === u.savedExcelFile}
+                            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-600 disabled:bg-cyan-400 text-white text-xs font-bold shadow-sm shadow-cyan-500/25 transition cursor-pointer"
                           >
-                            <Download className="w-3.5 h-3.5" />
-                            Скачать
+                            {downloadingFile === u.savedExcelFile ? (
+                              <>
+                                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                <span>Скачивание...</span>
+                              </>
+                            ) : (
+                              <>
+                                <Download className="w-3.5 h-3.5" />
+                                <span>Скачать</span>
+                              </>
+                            )}
                           </button>
                         ) : (
                           <div className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 text-slate-400 text-xs">

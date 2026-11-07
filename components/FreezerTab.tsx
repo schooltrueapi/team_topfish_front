@@ -228,37 +228,20 @@ export default function FreezerTab() {
   // Скачивание оригинального файла Excel
   const handleDownloadFile = async (id: string, fallbackName?: string) => {
     try {
-      toast.loading('Подготовка файла к скачиванию...', { id: 'freezer_dl' });
-      const resp = await api.get(`/api/freezer/download/${id}`, {
-        responseType: 'blob',
-      });
+      const token = typeof window !== 'undefined' ? localStorage.getItem('topfish_control_token') : null;
+      const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4001';
+      const downloadUrl = `${apiBase}/api/freezer/download/${encodeURIComponent(id)}${token ? `?token=${encodeURIComponent(token)}` : ''}`;
 
-      const blob = new Blob([resp.data], {
-        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      });
-      const blobUrl = URL.createObjectURL(blob);
       const link = document.createElement('a');
-
-      let dlName = fallbackName || 'СЕБЕСТОИМОСТЬ ОСТАТКОВ.xlsx';
-      const cd = resp.headers?.['content-disposition'] || resp.headers?.['Content-Disposition'];
-      if (cd) {
-        const m = cd.match(/filename\*=UTF-8''([^;]+)/i) || cd.match(/filename="?([^";]+)"?/i);
-        if (m && m[1]) {
-          try {
-            dlName = decodeURIComponent(m[1]);
-          } catch (e) {}
-        }
-      }
-
-      link.href = blobUrl;
-      link.download = dlName;
+      link.href = downloadUrl;
+      link.setAttribute('download', fallbackName || 'СЕБЕСТОИМОСТЬ ОСТАТКОВ.xlsx');
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-      URL.revokeObjectURL(blobUrl);
-      toast.success('Оригинальный файл успешно скачан!', { id: 'freezer_dl' });
+      toast.success('Скачивание файла началось');
     } catch (err: any) {
-      toast.error('Не удалось скачать файл с сервера', { id: 'freezer_dl' });
+      console.error('Download error:', err);
+      toast.error('Не удалось скачать файл с сервера');
     }
   };
 
