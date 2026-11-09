@@ -923,16 +923,20 @@ export default function TrialNoveltiesTab({
                   return (
                      <div
                         key={item.id}
-                        className={`bg-white rounded-3xl border transition-all duration-200 shadow-sm hover:shadow-xl flex flex-col overflow-hidden group ${
+                        className={`rounded-3xl border transition-all duration-300 flex flex-col overflow-hidden group ${
                            isInTrial
-                              ? 'border-amber-300 ring-2 ring-amber-400/30'
+                              ? 'bg-white border-amber-300 ring-2 ring-amber-400/30 shadow-sm hover:shadow-xl'
                               : isTested
-                                ? 'border-emerald-200'
-                                : 'border-slate-200 hover:border-slate-300'
+                                ? 'bg-emerald-100/75 border-emerald-400/80 ring-2 ring-emerald-500/20 shadow-xs hover:shadow-md opacity-65 hover:opacity-100'
+                                : 'bg-white border-slate-200 hover:border-slate-300 shadow-sm hover:shadow-xl'
                         }`}
                      >
                         {/* 1. Блок фото / видео / медиа */}
                         <div className='relative aspect-[4/3] bg-slate-100 overflow-hidden select-none'>
+                           {/* Зеленая полупрозрачная вуаль для отработанных новинок */}
+                           {isTested && (
+                              <div className='absolute inset-0 bg-emerald-700/20 pointer-events-none z-[5]' />
+                           )}
                            {coverUrl ? (
                               <div
                                  onClick={() =>
@@ -968,7 +972,7 @@ export default function TrialNoveltiesTab({
                                  )}
 
                                  {/* Бейдж счетчика медиа в углу */}
-                                 <div className='absolute bottom-3 right-3 flex items-center gap-1.5'>
+                                 <div className='absolute bottom-3 right-3 flex items-center gap-1.5 z-10'>
                                     {totalCount > 1 && (
                                        <span className='inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-slate-950/80 backdrop-blur-xs text-white text-[10px] font-bold shadow-md'>
                                           {videoCount > 0 && (
@@ -1007,10 +1011,18 @@ export default function TrialNoveltiesTab({
                            ) : (
                               <div
                                  onClick={() => {}}
-                                 className='w-full h-full flex flex-col items-center justify-center bg-gradient-to-br from-slate-100 to-slate-200 text-slate-400 p-4 text-center cursor-default'
+                                 className={`w-full h-full flex flex-col items-center justify-center p-4 text-center cursor-default ${
+                                    isTested
+                                       ? 'bg-emerald-200/40 text-emerald-700'
+                                       : 'bg-gradient-to-br from-slate-100 to-slate-200 text-slate-400'
+                                 }`}
                               >
-                                 <ImageIcon className='w-10 h-10 stroke-[1.5] text-slate-300 mb-1' />
-                                 <span className='text-[11px] font-medium text-slate-400'>
+                                 <ImageIcon className={`w-10 h-10 stroke-[1.5] mb-1 ${
+                                    isTested ? 'text-emerald-500' : 'text-slate-300'
+                                 }`} />
+                                 <span className={`text-[11px] font-medium ${
+                                    isTested ? 'text-emerald-800' : 'text-slate-400'
+                                 }`}>
                                     Медиа не загружено
                                  </span>
                               </div>
@@ -1044,16 +1056,26 @@ export default function TrialNoveltiesTab({
 
                            {/* Категория (если указана) */}
                            {item.category && (
-                              <span className='absolute bottom-3 left-3 px-2 py-0.5 rounded-lg bg-white/90 text-slate-800 text-[10px] font-bold backdrop-blur-xs shadow-2xs'>
+                              <span className={`absolute bottom-3 left-3 px-2 py-0.5 rounded-lg text-[10px] font-bold backdrop-blur-xs shadow-2xs z-10 ${
+                                 isTested
+                                    ? 'bg-emerald-950/80 text-emerald-200 border border-emerald-400/30'
+                                    : 'bg-white/90 text-slate-800'
+                              }`}>
                                  {item.category}
                               </span>
                            )}
                         </div>
 
                         {/* 2. Тело карточки */}
-                        <div className='p-4 flex-1 flex flex-col justify-between space-y-3'>
+                        <div className={`p-4 flex-1 flex flex-col justify-between space-y-3 ${
+                           isTested ? 'bg-emerald-100/50' : ''
+                        }`}>
                            <div className='space-y-1.5'>
-                              <h4 className='font-extrabold text-slate-900 text-sm leading-snug group-hover:text-teal-700 transition'>
+                              <h4 className={`font-extrabold text-sm leading-snug transition ${
+                                 isTested
+                                    ? 'text-emerald-950 group-hover:text-emerald-800'
+                                    : 'text-slate-900 group-hover:text-teal-700'
+                              }`}>
                                  {item.name}
                               </h4>
 
@@ -1072,7 +1094,11 @@ export default function TrialNoveltiesTab({
                            </div>
 
                            {/* Мета-информация о создании */}
-                           <div className='pt-2 border-t border-slate-100 flex items-center justify-between text-[10px] text-slate-400'>
+                           <div className={`pt-2 border-t flex items-center justify-between text-[10px] ${
+                              isTested
+                                 ? 'border-emerald-300/60 text-emerald-800/80'
+                                 : 'border-slate-100 text-slate-400'
+                           }`}>
                               <span title='Автор'>
                                  Автор: {item.createdBy || 'Технолог'}
                               </span>
@@ -1136,20 +1162,26 @@ export default function TrialNoveltiesTab({
                                     onClick={() =>
                                        handleTogglePlan(item, false)
                                     }
-                                    className='w-full py-2 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer'
+                                    className='w-full py-2 px-3 rounded-xl bg-white/90 hover:bg-white text-emerald-900 border border-emerald-300/80 text-xs font-bold transition shadow-2xs hover:shadow-xs flex items-center justify-center gap-1.5 cursor-pointer'
                                     title='Вернуть в банк идей для повторной отработки'
                                  >
-                                    <RotateCcw className='w-3.5 h-3.5 text-slate-500' />
+                                    <RotateCcw className='w-3.5 h-3.5 text-emerald-700' />
                                     <span>Вернуть в банк идей</span>
                                  </button>
                               )}
 
                               {/* Вспомогательные кнопки: Редактировать и Удалить */}
-                              <div className='flex items-center justify-end gap-1 pt-1 border-t border-slate-100'>
+                              <div className={`flex items-center justify-end gap-1 pt-1 border-t ${
+                                 isTested ? 'border-emerald-300/60' : 'border-slate-100'
+                              }`}>
                                  <button
                                     type='button'
                                     onClick={() => handleOpenEdit(item)}
-                                    className='p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition cursor-pointer'
+                                    className={`p-1.5 rounded-lg transition cursor-pointer ${
+                                       isTested
+                                          ? 'text-emerald-700/80 hover:text-emerald-950 hover:bg-emerald-200/60'
+                                          : 'text-slate-400 hover:text-slate-700 hover:bg-slate-100'
+                                    }`}
                                     title='Редактировать новинку или фото'
                                  >
                                     <Pencil className='w-3.5 h-3.5' />
@@ -1157,7 +1189,11 @@ export default function TrialNoveltiesTab({
                                  <button
                                     type='button'
                                     onClick={() => handleDelete(item)}
-                                    className='p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer'
+                                    className={`p-1.5 rounded-lg transition cursor-pointer ${
+                                       isTested
+                                          ? 'text-emerald-700/80 hover:text-rose-600 hover:bg-rose-50'
+                                          : 'text-slate-400 hover:text-rose-600 hover:bg-rose-50'
+                                    }`}
                                     title='Удалить новинку'
                                  >
                                     <Trash2 className='w-3.5 h-3.5' />
