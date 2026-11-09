@@ -663,7 +663,7 @@ export default function DashboardPage() {
       (hasPermission('TOGGLE_PLAN') || hasPermission('FULL_ACCESS'))
 
    return (
-      <div className='min-h-screen bg-slate-100/60 pb-16'>
+      <div className='min-h-screen bg-slate-100/60 pb-16 print:bg-white print:p-0 print:min-h-0'>
          {/* Навигация */}
          <Navbar
             currentWeek={currentWeek}
@@ -680,10 +680,10 @@ export default function DashboardPage() {
             onRevertUpload={() => setIsRevertConfirmOpen(true)}
          />
 
-         <main className='max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6'>
+         <main className='max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 print:max-w-none print:p-0 print:m-0'>
             {/* Напоминание о необходимости подвести итоги недели, если модалка была закрыта */}
             {needsReview && reviewWeek && isReviewDismissed && (
-               <div className='mb-4 p-4 rounded-2xl bg-gradient-to-r from-amber-500/10 via-orange-500/10 to-amber-500/10 border border-amber-300 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3'>
+               <div className='mb-4 p-4 rounded-2xl bg-gradient-to-r from-amber-500/10 via-orange-500/10 to-amber-500/10 border border-amber-300 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 print:hidden'>
                   <div className='flex items-center gap-3'>
                      <div className='w-9 h-9 rounded-xl bg-amber-500 text-white flex items-center justify-center font-bold shrink-0 shadow-xs'>
                         ⚠️
@@ -717,7 +717,7 @@ export default function DashboardPage() {
             )}
 
             {/* Главный переключатель вкладок: Основной план производства vs Вторые новинки (Отработка) */}
-            <div className='flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6 bg-white p-2 rounded-2xl border border-slate-200 shadow-xs'>
+            <div className='flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6 bg-white p-2 rounded-2xl border border-slate-200 shadow-xs print:hidden'>
                <div className='flex items-center gap-1.5 flex-wrap'>
                   <button
                      type='button'

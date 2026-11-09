@@ -43,6 +43,15 @@ body {
   .protected-clients-print-warning {
     display: block !important;
   }
+  /* Гарантированное скрытие шапок и навигации при любой печати */
+  header,
+  nav,
+  aside,
+  footer,
+  .print-hidden,
+  .no-print {
+    display: none !important;
+  }
 }
 
 .protected-clients-print-warning {

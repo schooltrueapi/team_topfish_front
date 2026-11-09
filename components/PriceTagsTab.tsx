@@ -238,10 +238,8 @@ export const computeDynamicTitleLayout = (
          (4.6 + (diff * 0.44 / 614) * 100).toFixed(2)
       )
 
-      const dynamicPriceY = Math.round(390 - diff * 0.22)
-      const dynamicPriceTopPercent = Number(
-         (12.0 - (diff * 0.22 / 614) * 100).toFixed(2)
-      )
+      const dynamicPriceY = 340
+      const dynamicPriceTopPercent = 12.0
 
       return {
          fontSize,
@@ -307,9 +305,9 @@ export const computeDynamicTitleLayout = (
       (4.6 + (diff * 0.44 / 614) * 100).toFixed(2)
    )
 
-   const dynamicPriceY = Math.round(390 - diff * 0.22)
+   const dynamicPriceY = Math.round(340 - diff * 0.1)
    const dynamicPriceTopPercent = Number(
-      (12.0 - (diff * 0.22 / 614) * 100).toFixed(2)
+      (12.0 - (diff * 0.1 / 614) * 100).toFixed(2)
    )
 
    return {
@@ -887,8 +885,8 @@ export async function generatePriceTagsPdf(
    return new Blob(blobParts, { type: 'application/pdf' })
 }
 
-// Генератор Word (.doc) документа с точной таблицей 10см х 6см на листах А4
-// с поддержкой двусторонней печати (лицевая сторона + зеркальная оборотная с кодами для весов)
+// Генератор Word (.doc) документа с точной таблицей 10см х 6см на листах А4 в формате MHTML
+// с поддержкой двусторонней печати и встроенными изображениями ценников
 export async function generatePriceTagsWord(
    tags: PriceTagItem[],
    drawFn: (
@@ -943,11 +941,11 @@ export async function generatePriceTagsWord(
 
             const img1 =
                idx1 < start + count && frontImagesBase64[idx1]
-                  ? `<img src="${frontImagesBase64[idx1]}" style="width:100mm; height:60mm; display:block;" width="378" height="227" alt="Ценник 10x6см" />`
+                  ? `<img src="cid:tag_front_${idx1}" style="width:100mm; height:60mm; display:block;" width="378" height="227" alt="Ценник 10x6см" />`
                   : ''
             const img2 =
                idx2 < start + count && frontImagesBase64[idx2]
-                  ? `<img src="${frontImagesBase64[idx2]}" style="width:100mm; height:60mm; display:block;" width="378" height="227" alt="Ценник 10x6см" />`
+                  ? `<img src="cid:tag_front_${idx2}" style="width:100mm; height:60mm; display:block;" width="378" height="227" alt="Ценник 10x6см" />`
                   : ''
 
             rowsHtml += `
@@ -978,11 +976,11 @@ export async function generatePriceTagsWord(
 
             const imgLeft =
                leftIdx < start + count && backImagesBase64[leftIdx]
-                  ? `<img src="${backImagesBase64[leftIdx]}" style="width:100mm; height:60mm; display:block;" width="378" height="227" alt="Код для весов 10x6см" />`
+                  ? `<img src="cid:tag_back_${leftIdx}" style="width:100mm; height:60mm; display:block;" width="378" height="227" alt="Код для весов 10x6см" />`
                   : ''
             const imgRight =
                rightIdx < start + count && backImagesBase64[rightIdx]
-                  ? `<img src="${backImagesBase64[rightIdx]}" style="width:100mm; height:60mm; display:block;" width="378" height="227" alt="Код для весов 10x6см" />`
+                  ? `<img src="cid:tag_back_${rightIdx}" style="width:100mm; height:60mm; display:block;" width="378" height="227" alt="Код для весов 10x6см" />`
                   : ''
 
             rowsHtml += `
@@ -1037,7 +1035,51 @@ export async function generatePriceTagsWord(
     </html>
   `
 
-   return new Blob([docHtml], { type: 'application/msword;charset=utf-8' })
+   // Формируем MHTML (MIME multipart/related), чтобы Word корректно отображал встроенные картинки
+   const boundary = '----=_NextPart_TopFish_' + Math.floor(Math.random() * 1e9)
+   let mimeParts = ''
+
+   if (needFront) {
+      frontImagesBase64.forEach((dataUri, i) => {
+         const rawBase64 = dataUri.replace(/^data:image\/jpeg;base64,/, '')
+         const wrapped = rawBase64.match(/.{1,76}/g)?.join('\r\n') || rawBase64
+         mimeParts += `\r\n--${boundary}\r\n`
+         mimeParts += `Content-Type: image/jpeg\r\n`
+         mimeParts += `Content-Transfer-Encoding: base64\r\n`
+         mimeParts += `Content-Location: tag_front_${i}\r\n`
+         mimeParts += `Content-ID: <tag_front_${i}>\r\n\r\n`
+         mimeParts += wrapped + '\r\n'
+      })
+   }
+
+   if (needBack) {
+      backImagesBase64.forEach((dataUri, i) => {
+         const rawBase64 = dataUri.replace(/^data:image\/jpeg;base64,/, '')
+         const wrapped = rawBase64.match(/.{1,76}/g)?.join('\r\n') || rawBase64
+         mimeParts += `\r\n--${boundary}\r\n`
+         mimeParts += `Content-Type: image/jpeg\r\n`
+         mimeParts += `Content-Transfer-Encoding: base64\r\n`
+         mimeParts += `Content-Location: tag_back_${i}\r\n`
+         mimeParts += `Content-ID: <tag_back_${i}>\r\n\r\n`
+         mimeParts += wrapped + '\r\n'
+      })
+   }
+
+   const mhtml = [
+      'MIME-Version: 1.0',
+      `Content-Type: multipart/related; type="text/html"; boundary="${boundary}"`,
+      '',
+      `--${boundary}`,
+      'Content-Type: text/html; charset="utf-8"',
+      'Content-Transfer-Encoding: 7bit',
+      '',
+      docHtml,
+      mimeParts,
+      `--${boundary}--`,
+      '',
+   ].join('\r\n')
+
+   return new Blob([mhtml], { type: 'application/msword;charset=utf-8' })
 }
 
 interface PriceTagsTabProps {
@@ -1340,7 +1382,8 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
                if (token.isDesc && tag.underlineDescription) {
                   ctx.save()
                   ctx.fillStyle = '#ffffff'
-                  const lineY = currentY + fontSize * 1.05
+                  // Линия подчеркивания строго под базовой линией шрифта (вместо 1.05fontSize, улетавшего вниз)
+                  const lineY = currentY + Math.round(fontSize * 0.86)
                   const lineThickness = Math.max(3, Math.round(fontSize * 0.052))
                   ctx.fillRect(x, lineY, w, lineThickness)
                   ctx.restore()
@@ -1409,8 +1452,19 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
             ? tag.priceOffsetY
             : TOPFISH_DEFAULTS.priceOffsetY
       const groupStartX = baseGroupStartX + priceOffsetX
-      const basePriceY = titleLayout.dynamicPriceY
-      const priceY = basePriceY + priceOffsetY
+      const basePriceY = titleLayout.dynamicPriceY || 340
+      let priceY = basePriceY + priceOffsetY
+
+      // Гарантированная защита от наложения цены на плашку обработки (Х/К, Г/К, С/С, ВЯЛ):
+      // Полувысота цифр цены от центра (middle) вниз составляет ~0.38 * priceSize
+      const priceHalfH = Math.round(priceSize * 0.38)
+      if (groupStartX < badgeW + 24) {
+         // Если группа цены по горизонтали заходит в зону плашки, удерживаем цену строго выше плашки
+         const maxSafePriceY = badgeTop - 14 - priceHalfH
+         if (priceY > maxSafePriceY) {
+            priceY = maxSafePriceY
+         }
+      }
 
       // Отрисовка цифр
       ctx.fillText(priceVal, groupStartX, priceY)
@@ -3397,8 +3451,12 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
               size: A4 portrait;
               margin: 8mm 5mm 5mm 5mm;
             }
-            header, nav, aside, footer, .print-screen-content {
+            header, nav, aside, footer, .print-screen-content, .print-hidden, .no-print, [role="navigation"] {
               display: none !important;
+            }
+            * {
+              -webkit-print-color-adjust: exact !important;
+              print-color-adjust: exact !important;
             }
             .print-price-tags-sheet {
               display: block !important;
@@ -3654,7 +3712,8 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
                                                                      token.isDesc && tag.underlineDescription
                                                                         ? 'underline'
                                                                         : 'none',
-                                                                  textUnderlineOffset: '3px',
+                                                                  textUnderlineOffset: '0.08em',
+                                                                  textDecorationThickness: '0.05em',
                                                                }}
                                                             >
                                                                {token.text}
