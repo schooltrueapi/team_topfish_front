@@ -13,47 +13,154 @@ import {
   Pencil,
   Trash2,
   Check,
-  CheckSquare,
-  UploadCloud,
   Lock,
-  PhoneCall,
 } from 'lucide-react';
+import {
+  PERMISSION_CONFIG,
+  SYSTEM_PERMISSIONS,
+  SECTION_PERMISSIONS,
+  ALL_PERMISSION_IDS,
+  PermissionConfigItem,
+} from '@/lib/permissions';
 
 interface RolesModalProps {
   isOpen: boolean;
   onClose: () => void;
 }
 
-const PERMISSION_CONFIG = [
-  {
-    id: 'FULL_ACCESS',
-    name: 'Полный доступ',
-    description: 'Все функции, закрытие недель и управление ролями',
-    badgeClass: 'bg-purple-100 text-purple-800 border-purple-200',
-    icon: Shield,
-  },
-  {
-    id: 'UPLOAD_1C',
-    name: 'Загрузка файла 1С',
-    description: 'Загрузка и пересчет прайс-листов 1С на неделю',
-    badgeClass: 'bg-teal-100 text-teal-800 border-teal-200',
-    icon: UploadCloud,
-  },
-  {
-    id: 'TOGGLE_PLAN',
-    name: 'Отметка в плане',
-    description: 'Отметка товаров в производственный план недели',
-    badgeClass: 'bg-blue-100 text-blue-800 border-blue-200',
-    icon: CheckSquare,
-  },
-  {
-    id: 'MANAGE_CLIENTS',
-    name: 'Работа с клиентской базой',
-    description: 'Просмотр, редактирование и добавление клиентов для обзвона',
-    badgeClass: 'bg-emerald-100 text-emerald-800 border-emerald-200',
-    icon: PhoneCall,
-  },
-];
+const SECTION_IDS = SECTION_PERMISSIONS.map((p) => p.id);
+
+function togglePermissionInList(prev: string[], permId: string): string[] {
+  if (permId === 'FULL_ACCESS') {
+    return prev.includes('FULL_ACCESS') ? [] : [...ALL_PERMISSION_IDS];
+  }
+
+  const exists = prev.includes(permId);
+  const next = exists ? prev.filter((p) => p !== permId) : [...prev, permId];
+  if (exists && prev.includes('FULL_ACCESS')) {
+    return next.filter((p) => p !== 'FULL_ACCESS');
+  }
+  return next;
+}
+
+function toggleAllSectionPermissions(prev: string[]): string[] {
+  const allSectionsSelected = SECTION_IDS.every((id) => prev.includes(id));
+  if (allSectionsSelected) {
+    return prev.filter((p) => !SECTION_IDS.includes(p as any) && p !== 'FULL_ACCESS');
+  }
+  const next = new Set(prev);
+  SECTION_IDS.forEach((id) => next.add(id));
+  return Array.from(next);
+}
+
+interface PermissionSelectorProps {
+  selectedPermissions: string[];
+  onToggle: (permId: string) => void;
+  onToggleAllSections: () => void;
+  compact?: boolean;
+}
+
+function PermissionCard({
+  perm,
+  isChecked,
+  onClick,
+  compact,
+}: {
+  perm: PermissionConfigItem;
+  isChecked: boolean;
+  onClick: () => void;
+  compact?: boolean;
+}) {
+  const Icon = perm.icon;
+  return (
+    <div
+      onClick={onClick}
+      title={perm.description}
+      className={`cursor-pointer rounded-xl border transition flex flex-col justify-between ${
+        compact ? 'p-2.5' : 'p-3'
+      } ${
+        isChecked
+          ? 'bg-purple-100/80 border-purple-400 ring-2 ring-purple-400/20 shadow-xs'
+          : 'bg-white border-slate-200 hover:border-purple-300'
+      }`}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <span className="text-xs font-bold text-slate-900 flex items-center gap-1.5 leading-snug">
+          <Icon className={`w-3.5 h-3.5 shrink-0 ${isChecked ? 'text-purple-700' : 'text-slate-400'}`} />
+          <span>{perm.name}</span>
+        </span>
+        <div
+          className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 mt-0.5 ${
+            isChecked ? 'bg-purple-600 border-purple-600 text-white' : 'border-slate-300 bg-white'
+          }`}
+        >
+          {isChecked && <Check className="w-3 h-3 stroke-[3]" />}
+        </div>
+      </div>
+      {!compact && (
+        <p className="text-[10px] text-slate-500 mt-1.5 leading-tight">
+          {perm.description}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function PermissionSelector({
+  selectedPermissions,
+  onToggle,
+  onToggleAllSections,
+  compact = false,
+}: PermissionSelectorProps) {
+  const allSectionsSelected = SECTION_IDS.every((id) => selectedPermissions.includes(id));
+
+  return (
+    <div className="space-y-3.5">
+      <div>
+        <label className="block text-[11px] font-bold text-purple-950 uppercase tracking-tight mb-2">
+          Основные права и действия:
+        </label>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+          {SYSTEM_PERMISSIONS.map((perm) => (
+            <PermissionCard
+              key={perm.id}
+              perm={perm}
+              isChecked={selectedPermissions.includes(perm.id)}
+              onClick={() => onToggle(perm.id)}
+              compact={compact}
+            />
+          ))}
+        </div>
+      </div>
+
+      <div>
+        <div className="flex items-center justify-between gap-2 mb-2">
+          <label className="block text-[11px] font-bold text-purple-950 uppercase tracking-tight">
+            Доступ к разделам (вкладкам):
+          </label>
+          <button
+            type="button"
+            onClick={onToggleAllSections}
+            className="text-[11px] font-semibold text-purple-700 hover:text-purple-900 hover:underline cursor-pointer"
+          >
+            {allSectionsSelected ? 'Снять все разделы' : 'Выбрать все разделы'}
+          </button>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+          {SECTION_PERMISSIONS.map((perm) => (
+            <PermissionCard
+              key={perm.id}
+              perm={perm}
+              isChecked={selectedPermissions.includes(perm.id)}
+              onClick={() => onToggle(perm.id)}
+              compact={compact}
+            />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function RolesModal({ isOpen, onClose }: RolesModalProps) {
   const { roles, fetchRoles, createRole, updateRole, deleteRole, createUser } = useAuth();
@@ -62,7 +169,7 @@ export default function RolesModal({ isOpen, onClose }: RolesModalProps) {
   // Форма создания роли
   const [roleName, setRoleName] = useState('');
   const [roleDesc, setRoleDesc] = useState('');
-  const [rolePermissions, setRolePermissions] = useState<string[]>(['TOGGLE_PLAN']);
+  const [rolePermissions, setRolePermissions] = useState<string[]>([]);
   const [isSubmittingRole, setIsSubmittingRole] = useState(false);
 
   // Состояние редактирования роли
@@ -98,46 +205,12 @@ export default function RolesModal({ isOpen, onClose }: RolesModalProps) {
 
   if (!isOpen) return null;
 
-  // Переключение чекбокса прав при создании
   const toggleCreatePermission = (permId: string) => {
-    if (permId === 'FULL_ACCESS') {
-      if (rolePermissions.includes('FULL_ACCESS')) {
-        setRolePermissions([]);
-      } else {
-        setRolePermissions(PERMISSION_CONFIG.map((p) => p.id));
-      }
-      return;
-    }
-
-    setRolePermissions((prev) => {
-      const exists = prev.includes(permId);
-      const next = exists ? prev.filter((p) => p !== permId) : [...prev, permId];
-      if (exists && prev.includes('FULL_ACCESS')) {
-        return next.filter((p) => p !== 'FULL_ACCESS');
-      }
-      return next;
-    });
+    setRolePermissions((prev) => togglePermissionInList(prev, permId));
   };
 
-  // Переключение чекбокса прав при редактировании
   const toggleEditPermission = (permId: string) => {
-    if (permId === 'FULL_ACCESS') {
-      if (editPermissions.includes('FULL_ACCESS')) {
-        setEditPermissions([]);
-      } else {
-        setEditPermissions(PERMISSION_CONFIG.map((p) => p.id));
-      }
-      return;
-    }
-
-    setEditPermissions((prev) => {
-      const exists = prev.includes(permId);
-      const next = exists ? prev.filter((p) => p !== permId) : [...prev, permId];
-      if (exists && prev.includes('FULL_ACCESS')) {
-        return next.filter((p) => p !== 'FULL_ACCESS');
-      }
-      return next;
-    });
+    setEditPermissions((prev) => togglePermissionInList(prev, permId));
   };
 
   const handleCreateRole = async (e: React.FormEvent) => {
@@ -149,7 +222,7 @@ export default function RolesModal({ isOpen, onClose }: RolesModalProps) {
     if (ok) {
       setRoleName('');
       setRoleDesc('');
-      setRolePermissions(['TOGGLE_PLAN']);
+      setRolePermissions([]);
     }
   };
 
@@ -208,7 +281,7 @@ export default function RolesModal({ isOpen, onClose }: RolesModalProps) {
 
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-5">
-      <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-3xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+      <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-4xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
         {/* Шапка */}
         <div className="p-5 border-b border-slate-200 flex items-center justify-between bg-slate-50">
           <div className="flex items-center gap-2.5">
@@ -300,43 +373,11 @@ export default function RolesModal({ isOpen, onClose }: RolesModalProps) {
               </div>
 
               {/* Выбор прав доступа */}
-              <div>
-                <label className="block text-[11px] font-bold text-purple-950 uppercase tracking-tight mb-2">
-                  Права доступа для этой роли:
-                </label>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                  {PERMISSION_CONFIG.map((perm) => {
-                    const isChecked = rolePermissions.includes(perm.id);
-                    const Icon = perm.icon;
-                    return (
-                      <div
-                        key={perm.id}
-                        onClick={() => toggleCreatePermission(perm.id)}
-                        className={`cursor-pointer p-3 rounded-xl border transition flex flex-col justify-between ${
-                          isChecked
-                            ? 'bg-purple-100/70 border-purple-400 ring-2 ring-purple-400/20 shadow-xs'
-                            : 'bg-white border-slate-200 hover:border-purple-300'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
-                            <Icon className={`w-3.5 h-3.5 ${isChecked ? 'text-purple-700' : 'text-slate-400'}`} />
-                            {perm.name}
-                          </span>
-                          <div className={`w-4 h-4 rounded border flex items-center justify-center ${
-                            isChecked ? 'bg-purple-600 border-purple-600 text-white' : 'border-slate-300 bg-white'
-                          }`}>
-                            {isChecked && <Check className="w-3 h-3 stroke-[3]" />}
-                          </div>
-                        </div>
-                        <p className="text-[10px] text-slate-500 mt-1.5 leading-tight">
-                          {perm.description}
-                        </p>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
+              <PermissionSelector
+                selectedPermissions={rolePermissions}
+                onToggle={toggleCreatePermission}
+                onToggleAllSections={() => setRolePermissions((prev) => toggleAllSectionPermissions(prev))}
+              />
 
               <div className="flex justify-end pt-1">
                 <button
@@ -414,40 +455,12 @@ export default function RolesModal({ isOpen, onClose }: RolesModalProps) {
                         </div>
 
                         {/* Переключатели прав в форме редактирования */}
-                        <div>
-                          <label className="block text-[10px] font-bold text-slate-600 uppercase mb-1.5">
-                            Права роли:
-                          </label>
-                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                            {PERMISSION_CONFIG.map((perm) => {
-                              const isChecked = editPermissions.includes(perm.id);
-                              const Icon = perm.icon;
-                              return (
-                                <div
-                                  key={perm.id}
-                                  onClick={() => toggleEditPermission(perm.id)}
-                                  className={`cursor-pointer p-2.5 rounded-xl border transition flex flex-col justify-between ${
-                                    isChecked
-                                      ? 'bg-purple-100 border-purple-400 ring-2 ring-purple-400/20'
-                                      : 'bg-white border-slate-200 hover:border-purple-300'
-                                  }`}
-                                >
-                                  <div className="flex items-center justify-between">
-                                    <span className="text-xs font-bold text-slate-900 flex items-center gap-1">
-                                      <Icon className={`w-3 h-3 ${isChecked ? 'text-purple-700' : 'text-slate-400'}`} />
-                                      {perm.name}
-                                    </span>
-                                    <div className={`w-3.5 h-3.5 rounded border flex items-center justify-center ${
-                                      isChecked ? 'bg-purple-600 border-purple-600 text-white' : 'border-slate-300 bg-white'
-                                    }`}>
-                                      {isChecked && <Check className="w-2.5 h-2.5 stroke-[3]" />}
-                                    </div>
-                                  </div>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </div>
+                        <PermissionSelector
+                          selectedPermissions={editPermissions}
+                          onToggle={toggleEditPermission}
+                          onToggleAllSections={() => setEditPermissions((prev) => toggleAllSectionPermissions(prev))}
+                          compact
+                        />
 
                         <div className="flex items-center justify-end gap-2 pt-1">
                           <button
@@ -523,7 +536,7 @@ export default function RolesModal({ isOpen, onClose }: RolesModalProps) {
                         <span className="text-[11px] font-semibold text-slate-400 mr-1">Права:</span>
                         {rolePerms.length === 0 ? (
                           <span className="text-[11px] text-slate-400 italic">
-                            Нет специальных прав (только просмотр)
+                            Нет назначенных прав (разделы скрыты)
                           </span>
                         ) : (
                           rolePerms.map((p) => {

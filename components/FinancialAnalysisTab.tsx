@@ -96,7 +96,7 @@ interface FinancialAnalysisTabProps {
 
 export default function FinancialAnalysisTab({ currentWeek }: FinancialAnalysisTabProps) {
   const { user, hasPermission } = useAuth();
-  const isAdmin = hasPermission('FULL_ACCESS');
+  const canAccessFinance = hasPermission('ACCESS_FINANCE');
 
   const [loading, setLoading] = useState<boolean>(true);
   const [selectedWeekId, setSelectedWeekId] = useState<string>('current');
@@ -166,10 +166,10 @@ export default function FinancialAnalysisTab({ currentWeek }: FinancialAnalysisT
   };
 
   useEffect(() => {
-    if (isAdmin) {
+    if (canAccessFinance) {
       loadFinancialData();
     }
-  }, [isAdmin]);
+  }, [canAccessFinance]);
 
   // Обработка смены недели
   const handleWeekChange = (newWeekId: string) => {
@@ -313,8 +313,8 @@ export default function FinancialAnalysisTab({ currentWeek }: FinancialAnalysisT
     toast.success('Отчет успешно выгружен в CSV!');
   };
 
-  // Если пользователь не администратор
-  if (!isAdmin) {
+  // Если нет доступа к разделу финансов
+  if (!canAccessFinance) {
     return (
       <div className="bg-white rounded-3xl border border-rose-200 p-8 text-center max-w-xl mx-auto shadow-sm my-8">
         <div className="w-16 h-16 bg-rose-100 text-rose-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
@@ -324,7 +324,7 @@ export default function FinancialAnalysisTab({ currentWeek }: FinancialAnalysisT
           Доступ ограничен
         </h3>
         <p className="text-sm text-slate-600 mb-4">
-          Вкладка «Анализ финансов» и расчет складской стоимости по оптовым ценам доступны только Администратору (Руководителю).
+          Вкладка «Анализ финансов» и расчет складской стоимости по оптовым ценам доступны только пользователям с правом доступа к этому разделу.
         </p>
       </div>
     );
@@ -343,7 +343,7 @@ export default function FinancialAnalysisTab({ currentWeek }: FinancialAnalysisT
             <div className="flex items-center gap-2 mb-2">
               <span className="px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-xs font-bold tracking-wide uppercase flex items-center gap-1.5 shadow-xs">
                 <Sparkles className="w-3.5 h-3.5" />
-                Только для Администратора
+                Финансовая аналитика
               </span>
               {weekInfo?.status === 'IN_PROGRESS' && (
                 <span className="px-2.5 py-0.5 rounded-full bg-blue-500/20 text-blue-300 text-[11px] font-semibold">

@@ -40,7 +40,13 @@ import {
    ClipboardCheck,
    Snowflake,
    Tag,
+   Lock,
 } from 'lucide-react'
+import {
+   SECTION_PERMISSIONS,
+   TAB_PERMISSION_MAP,
+   TabId,
+} from '@/lib/permissions'
 
 export default function DashboardPage() {
    const router = useRouter()
@@ -53,19 +59,19 @@ export default function DashboardPage() {
    const [isReviewDismissed, setIsReviewDismissed] = useState(false)
    const [currentFilter, setCurrentFilter] = useState('all')
 
-   // Главные вкладки страницы: Основной план vs Вторые новинки vs База обзвона vs Анализ финансов vs Тех. карты vs Аналитика склада
-   const [activeTab, setActiveTab] = useState<
-      | 'main_plan'
-      | 'trial_novelties'
-      | 'clients'
-      | 'finance'
-      | 'tech_cards'
-      | 'stock_analytics'
-      | 'monthly_plan'
-      | 'inventory'
-      | 'freezer'
-      | 'price_tags'
-   >('main_plan')
+   // Главные вкладки страницы: Основной план vs Вторые новинки vs База обзвона vs Анализ финансов vs Тех. карты vs Аналитика склада и др.
+   const [activeTab, setActiveTab] = useState<TabId>('main_plan')
+
+   const allowedTabIds = React.useMemo<TabId[]>(() => {
+      if (!user) return []
+      return SECTION_PERMISSIONS
+         .filter((p) => p.tabId && hasPermission(p.id))
+         .map((p) => p.tabId as TabId)
+   }, [user, hasPermission])
+
+   const effectiveTab: TabId | null = allowedTabIds.includes(activeTab)
+      ? activeTab
+      : (allowedTabIds[0] ?? null)
    const [clientsCount, setClientsCount] = useState<number>(0)
    const [trialStats, setTrialStats] = useState({
       total: 0,
@@ -151,13 +157,21 @@ export default function DashboardPage() {
       } catch (e) {}
    }, [])
 
-   // Автосохранение активной вкладки при переключении
+   // Автосохранение активной вкладки при переключении (только если раздел разрешен)
    useEffect(() => {
-      if (typeof window === 'undefined') return
+      if (typeof window === 'undefined' || !user) return
+      if (!allowedTabIds.includes(activeTab)) return
       try {
          localStorage.setItem('topfish_active_tab', activeTab)
       } catch (e) {}
-   }, [activeTab])
+   }, [activeTab, user, allowedTabIds])
+
+   // Автопереключение на первый доступный раздел, если текущий недоступен для роли пользователя
+   useEffect(() => {
+      if (user && allowedTabIds.length > 0 && !allowedTabIds.includes(activeTab)) {
+         setActiveTab(allowedTabIds[0])
+      }
+   }, [user, allowedTabIds, activeTab])
 
    // Загрузка настроек системы (авто-синхронизация с Прайсом)
    useEffect(() => {
@@ -242,7 +256,9 @@ export default function DashboardPage() {
          const res = await api.get('/api/weeks/current')
          if (!isBackground) {
             fetchWeeksHistory()
-            fetchTrialStats()
+            if (hasPermission('ACCESS_TRIAL_NOVELTIES')) {
+               fetchTrialStats()
+            }
          }
          if (res.data.needsReview) {
             setNeedsReview(true)
@@ -267,7 +283,7 @@ export default function DashboardPage() {
                let inTrialItems: PlanItem[] = []
                if (Array.isArray(res.data.currentWeek?.trialItems)) {
                   inTrialItems = res.data.currentWeek.trialItems
-               } else {
+               } else if (hasPermission('ACCESS_TRIAL_NOVELTIES')) {
                   try {
                      const trialRes = await api.get('/api/trial-novelties', {
                         params: {
@@ -661,6 +677,8 @@ export default function DashboardPage() {
    const canEditArchive =
       isViewingArchive &&
       (hasPermission('TOGGLE_PLAN') || hasPermission('FULL_ACCESS'))
+   const canReviewWeek =
+      hasPermission('ACCESS_MAIN_PLAN') || hasPermission('TOGGLE_PLAN')
 
    return (
       <div className='min-h-screen bg-slate-100/60 pb-16 print:bg-white print:p-0 print:min-h-0'>
@@ -682,7 +700,7 @@ export default function DashboardPage() {
 
          <main className='max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 print:max-w-none print:p-0 print:m-0'>
             {/* Напоминание о необходимости подвести итоги недели, если модалка была закрыта */}
-            {needsReview && reviewWeek && isReviewDismissed && (
+            {needsReview && reviewWeek && isReviewDismissed && canReviewWeek && (
                <div className='mb-4 p-4 rounded-2xl bg-gradient-to-r from-amber-500/10 via-orange-500/10 to-amber-500/10 border border-amber-300 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 print:hidden'>
                   <div className='flex items-center gap-3'>
                      <div className='w-9 h-9 rounded-xl bg-amber-500 text-white flex items-center justify-center font-bold shrink-0 shadow-xs'>
@@ -716,308 +734,342 @@ export default function DashboardPage() {
                </div>
             )}
 
-            {/* Главный переключатель вкладок: Основной план производства vs Вторые новинки (Отработка) */}
-            <div className='flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6 bg-white p-2 rounded-2xl border border-slate-200 shadow-xs print:hidden'>
-               <div className='flex items-center gap-1.5 flex-wrap'>
-                  <button
-                     type='button'
-                     onClick={() => setActiveTab('main_plan')}
-                     className={`px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all flex items-center gap-2 cursor-pointer ${
-                        activeTab === 'main_plan'
-                           ? 'bg-slate-900 text-white shadow-md shadow-slate-900/10 ring-1 ring-slate-800'
-                           : 'bg-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-                     }`}
-                  >
-                     <ClipboardList className='w-4 h-4 text-teal-400' />
-                     <span>Основной план производства</span>
-                     <span
-                        className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
-                           activeTab === 'main_plan'
-                              ? 'bg-slate-800 text-teal-300'
-                              : 'bg-slate-100 text-slate-600'
-                        }`}
-                     >
-                        {plannedCount} поз.
-                     </span>
-                  </button>
-
-                  <button
-                     type='button'
-                     onClick={() => setActiveTab('trial_novelties')}
-                     className={`px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all flex items-center gap-2 cursor-pointer ${
-                        activeTab === 'trial_novelties'
-                           ? 'bg-gradient-to-r from-teal-600 to-indigo-600 text-white shadow-md shadow-teal-600/20'
-                           : 'bg-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-                     }`}
-                  >
-                     <FlaskConical className='w-4 h-4 text-teal-300' />
-                     <span>Вторые новинки (Отработка)</span>
-                     {trialStats.inTrial > 0 ? (
-                        <span className='px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-500 text-white shadow-xs animate-pulse'>
-                           🔥 {trialStats.inTrial} в плане
-                        </span>
-                     ) : trialStats.total > 0 ? (
-                        <span
-                           className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                              activeTab === 'trial_novelties'
-                                 ? 'bg-teal-500/30 text-teal-100'
-                                 : 'bg-teal-50 text-teal-700'
+            {/* Главный переключатель вкладок: все разделы в соответствии с правами роли */}
+            {allowedTabIds.length > 0 && (
+               <div className='flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6 bg-white p-2 rounded-2xl border border-slate-200 shadow-xs print:hidden'>
+                  <div className='flex items-center gap-1.5 flex-wrap'>
+                     {hasPermission(TAB_PERMISSION_MAP.main_plan) && (
+                        <button
+                           type='button'
+                           onClick={() => setActiveTab('main_plan')}
+                           className={`px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all flex items-center gap-2 cursor-pointer ${
+                              effectiveTab === 'main_plan'
+                                 ? 'bg-slate-900 text-white shadow-md shadow-slate-900/10 ring-1 ring-slate-800'
+                                 : 'bg-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-100'
                            }`}
                         >
-                           {trialStats.total}
-                        </span>
-                     ) : null}
-                  </button>
+                           <ClipboardList className='w-4 h-4 text-teal-400' />
+                           <span>Основной план производства</span>
+                           <span
+                              className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
+                                 effectiveTab === 'main_plan'
+                                    ? 'bg-slate-800 text-teal-300'
+                                    : 'bg-slate-100 text-slate-600'
+                              }`}
+                           >
+                              {plannedCount} поз.
+                           </span>
+                        </button>
+                     )}
 
-                  {hasPermission('MANAGE_CLIENTS') && (
-                     <button
-                        type='button'
-                        onClick={() => setActiveTab('clients')}
-                        className={`px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all flex items-center gap-2 cursor-pointer ${
-                           activeTab === 'clients'
-                              ? 'bg-gradient-to-r from-teal-600 to-emerald-600 text-white shadow-md shadow-teal-600/20'
-                              : 'bg-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-                        }`}
-                     >
-                        <PhoneCall className='w-4 h-4 text-emerald-300' />
-                        <span>База обзвона (Клиенты)</span>
-                        {clientsCount > 0 && (
+                     {hasPermission(TAB_PERMISSION_MAP.trial_novelties) && (
+                        <button
+                           type='button'
+                           onClick={() => setActiveTab('trial_novelties')}
+                           className={`px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all flex items-center gap-2 cursor-pointer ${
+                              effectiveTab === 'trial_novelties'
+                                 ? 'bg-gradient-to-r from-teal-600 to-indigo-600 text-white shadow-md shadow-teal-600/20'
+                                 : 'bg-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                           }`}
+                        >
+                           <FlaskConical className='w-4 h-4 text-teal-300' />
+                           <span>Вторые новинки (Отработка)</span>
+                           {trialStats.inTrial > 0 ? (
+                              <span className='px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-500 text-white shadow-xs animate-pulse'>
+                                 🔥 {trialStats.inTrial} в плане
+                              </span>
+                           ) : trialStats.total > 0 ? (
+                              <span
+                                 className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                    effectiveTab === 'trial_novelties'
+                                       ? 'bg-teal-500/30 text-teal-100'
+                                       : 'bg-teal-50 text-teal-700'
+                                 }`}
+                              >
+                                 {trialStats.total}
+                              </span>
+                           ) : null}
+                        </button>
+                     )}
+
+                     {hasPermission(TAB_PERMISSION_MAP.clients) && (
+                        <button
+                           type='button'
+                           onClick={() => setActiveTab('clients')}
+                           className={`px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all flex items-center gap-2 cursor-pointer ${
+                              effectiveTab === 'clients'
+                                 ? 'bg-gradient-to-r from-teal-600 to-emerald-600 text-white shadow-md shadow-teal-600/20'
+                                 : 'bg-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                           }`}
+                        >
+                           <PhoneCall className='w-4 h-4 text-emerald-300' />
+                           <span>База обзвона (Клиенты)</span>
+                           {clientsCount > 0 && (
+                              <span
+                                 className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                    effectiveTab === 'clients'
+                                       ? 'bg-white/20 text-white'
+                                       : 'bg-emerald-50 text-emerald-700'
+                                 }`}
+                              >
+                                 {clientsCount}
+                              </span>
+                           )}
+                        </button>
+                     )}
+
+                     {hasPermission(TAB_PERMISSION_MAP.finance) && (
+                        <button
+                           type='button'
+                           onClick={() => setActiveTab('finance')}
+                           className={`px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all flex items-center gap-2 cursor-pointer ${
+                              effectiveTab === 'finance'
+                                 ? 'bg-gradient-to-r from-emerald-600 to-teal-700 text-white shadow-md shadow-emerald-600/25 ring-1 ring-emerald-500/50'
+                                 : 'bg-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                           }`}
+                        >
+                           <Wallet className='w-4 h-4 text-emerald-300' />
+                           <span>Анализ финансов</span>
                            <span
                               className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                                 activeTab === 'clients'
+                                 effectiveTab === 'finance'
                                     ? 'bg-white/20 text-white'
                                     : 'bg-emerald-50 text-emerald-700'
                               }`}
                            >
-                              {clientsCount}
+                              Склад ₽
                            </span>
-                        )}
-                     </button>
-                  )}
+                        </button>
+                     )}
 
-                  {hasPermission('FULL_ACCESS') && (
-                     <button
-                        type='button'
-                        onClick={() => setActiveTab('finance')}
-                        className={`px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all flex items-center gap-2 cursor-pointer ${
-                           activeTab === 'finance'
-                              ? 'bg-gradient-to-r from-emerald-600 to-teal-700 text-white shadow-md shadow-emerald-600/25 ring-1 ring-emerald-500/50'
-                              : 'bg-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-                        }`}
-                     >
-                        <Wallet className='w-4 h-4 text-emerald-300' />
-                        <span>Анализ финансов</span>
-                        <span
-                           className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                              activeTab === 'finance'
-                                 ? 'bg-white/20 text-white'
-                                 : 'bg-emerald-50 text-emerald-700'
+                     {/* Вкладка «Тех. карты & Производство» */}
+                     {hasPermission(TAB_PERMISSION_MAP.tech_cards) && (
+                        <button
+                           type='button'
+                           onClick={() => setActiveTab('tech_cards')}
+                           className={`px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all flex items-center gap-2 cursor-pointer ${
+                              effectiveTab === 'tech_cards'
+                                 ? 'bg-gradient-to-r from-teal-700 via-slate-900 to-indigo-950 text-white shadow-md shadow-slate-900/25 ring-1 ring-teal-500/50'
+                                 : 'bg-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-100'
                            }`}
                         >
-                           Склад ₽
-                        </span>
-                     </button>
-                  )}
+                           <ChefHat className='w-4 h-4 text-teal-300' />
+                           <span>Тех. карты</span>
+                           <span
+                              className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                 effectiveTab === 'tech_cards'
+                                    ? 'bg-white/20 text-white'
+                                    : 'bg-teal-50 text-teal-700'
+                              }`}
+                           >
+                              Цех
+                           </span>
+                        </button>
+                     )}
 
-                  {/* Вкладка «Тех. карты & Производство» */}
-                  <button
-                     type='button'
-                     onClick={() => setActiveTab('tech_cards')}
-                     className={`px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all flex items-center gap-2 cursor-pointer ${
-                        activeTab === 'tech_cards'
-                           ? 'bg-gradient-to-r from-teal-700 via-slate-900 to-indigo-950 text-white shadow-md shadow-slate-900/25 ring-1 ring-teal-500/50'
-                           : 'bg-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-                     }`}
-                  >
-                     <ChefHat className='w-4 h-4 text-teal-300' />
-                     <span>Тех. карты</span>
-                     <span
-                        className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                           activeTab === 'tech_cards'
-                              ? 'bg-white/20 text-white'
-                              : 'bg-teal-50 text-teal-700'
-                        }`}
-                     >
-                        Цех
-                     </span>
-                  </button>
+                     {/* Вкладка «Аналитика склада» */}
+                     {hasPermission(TAB_PERMISSION_MAP.stock_analytics) && (
+                        <button
+                           type='button'
+                           onClick={() => setActiveTab('stock_analytics')}
+                           className={`px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all flex items-center gap-2 cursor-pointer ${
+                              effectiveTab === 'stock_analytics'
+                                 ? 'bg-gradient-to-r from-cyan-600 via-sky-800 to-indigo-950 text-white shadow-md shadow-slate-900/25 ring-1 ring-cyan-500/50'
+                                 : 'bg-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                           }`}
+                        >
+                           <BarChart3 className='w-4 h-4 text-cyan-300' />
+                           <span>Аналитика склада</span>
+                           <span
+                              className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                 effectiveTab === 'stock_analytics'
+                                    ? 'bg-white/20 text-white'
+                                    : 'bg-cyan-50 text-cyan-700'
+                              }`}
+                           >
+                              История
+                           </span>
+                        </button>
+                     )}
 
-                  {/* Вкладка «Аналитика склада» */}
-                  <button
-                     type='button'
-                     onClick={() => setActiveTab('stock_analytics')}
-                     className={`px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all flex items-center gap-2 cursor-pointer ${
-                        activeTab === 'stock_analytics'
-                           ? 'bg-gradient-to-r from-cyan-600 via-sky-800 to-indigo-950 text-white shadow-md shadow-slate-900/25 ring-1 ring-cyan-500/50'
-                           : 'bg-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-                     }`}
-                  >
-                     <BarChart3 className='w-4 h-4 text-cyan-300' />
-                     <span>Аналитика склада</span>
-                     <span
-                        className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                           activeTab === 'stock_analytics'
-                              ? 'bg-white/20 text-white'
-                              : 'bg-cyan-50 text-cyan-700'
-                        }`}
-                     >
-                        История
-                     </span>
-                  </button>
+                     {/* Вкладка «Месячный план & Контроль перебора» */}
+                     {hasPermission(TAB_PERMISSION_MAP.monthly_plan) && (
+                        <button
+                           type='button'
+                           onClick={() => setActiveTab('monthly_plan')}
+                           className={`px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all flex items-center gap-2 cursor-pointer ${
+                              effectiveTab === 'monthly_plan'
+                                 ? 'bg-gradient-to-r from-emerald-600 via-teal-700 to-slate-900 text-white shadow-md shadow-emerald-600/25 ring-1 ring-emerald-500/50'
+                                 : 'bg-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                           }`}
+                        >
+                           <CalendarDays className='w-4 h-4 text-emerald-300' />
+                           <span>Месячный план</span>
+                           <span
+                              className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                 effectiveTab === 'monthly_plan'
+                                    ? 'bg-white/20 text-white'
+                                    : 'bg-emerald-50 text-emerald-700'
+                              }`}
+                           >
+                              Лимиты & Спрос
+                           </span>
+                        </button>
+                     )}
 
-                  {/* Вкладка «Месячный план & Контроль перебора» */}
-                  <button
-                     type='button'
-                     onClick={() => setActiveTab('monthly_plan')}
-                     className={`px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all flex items-center gap-2 cursor-pointer ${
-                        activeTab === 'monthly_plan'
-                           ? 'bg-gradient-to-r from-emerald-600 via-teal-700 to-slate-900 text-white shadow-md shadow-emerald-600/25 ring-1 ring-emerald-500/50'
-                           : 'bg-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-                     }`}
-                  >
-                     <CalendarDays className='w-4 h-4 text-emerald-300' />
-                     <span>Месячный план</span>
-                     <span
-                        className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                           activeTab === 'monthly_plan'
-                              ? 'bg-white/20 text-white'
-                              : 'bg-emerald-50 text-emerald-700'
-                        }`}
-                     >
-                        Лимиты & Спрос
-                     </span>
-                  </button>
+                     {/* Вкладка «Инвентаризация запасов» */}
+                     {hasPermission(TAB_PERMISSION_MAP.inventory) && (
+                        <button
+                           type='button'
+                           onClick={() => setActiveTab('inventory')}
+                           className={`px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all flex items-center gap-2 cursor-pointer ${
+                              effectiveTab === 'inventory'
+                                 ? 'bg-gradient-to-r from-teal-700 via-indigo-900 to-slate-900 text-white shadow-md shadow-indigo-950/25 ring-1 ring-teal-500/50'
+                                 : 'bg-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                           }`}
+                        >
+                           <ClipboardCheck className='w-4 h-4 text-teal-300' />
+                           <span>Инвентаризация</span>
+                           <span
+                              className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                 effectiveTab === 'inventory'
+                                    ? 'bg-white/20 text-white'
+                                    : 'bg-indigo-50 text-indigo-700'
+                              }`}
+                           >
+                              Сверка
+                           </span>
+                        </button>
+                     )}
 
-                  {/* Вкладка «Инвентаризация запасов» */}
-                  <button
-                     type='button'
-                     onClick={() => setActiveTab('inventory')}
-                     className={`px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all flex items-center gap-2 cursor-pointer ${
-                        activeTab === 'inventory'
-                           ? 'bg-gradient-to-r from-teal-700 via-indigo-900 to-slate-900 text-white shadow-md shadow-indigo-950/25 ring-1 ring-teal-500/50'
-                           : 'bg-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-                     }`}
-                  >
-                     <ClipboardCheck className='w-4 h-4 text-teal-300' />
-                     <span>Инвентаризация</span>
-                     <span
-                        className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                           activeTab === 'inventory'
-                              ? 'bg-white/20 text-white'
-                              : 'bg-indigo-50 text-indigo-700'
-                        }`}
-                     >
-                        Сверка
-                     </span>
-                  </button>
+                     {/* Вкладка «Склад Заморозки» */}
+                     {hasPermission(TAB_PERMISSION_MAP.freezer) && (
+                        <button
+                           type='button'
+                           onClick={() => setActiveTab('freezer')}
+                           className={`px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all flex items-center gap-2 cursor-pointer ${
+                              effectiveTab === 'freezer'
+                                 ? 'bg-gradient-to-r from-cyan-600 via-teal-700 to-slate-900 text-white shadow-md shadow-cyan-950/25 ring-1 ring-cyan-500/50'
+                                 : 'bg-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                           }`}
+                        >
+                           <Snowflake className='w-4 h-4 text-cyan-300' />
+                           <span>Заморозка</span>
+                           <span
+                              className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                 effectiveTab === 'freezer'
+                                    ? 'bg-white/20 text-white'
+                                    : 'bg-cyan-50 text-cyan-700'
+                              }`}
+                           >
+                              Сырьё
+                           </span>
+                        </button>
+                     )}
 
-                  {/* Вкладка «Склад Заморозки» */}
-                  <button
-                     type='button'
-                     onClick={() => setActiveTab('freezer')}
-                     className={`px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all flex items-center gap-2 cursor-pointer ${
-                        activeTab === 'freezer'
-                           ? 'bg-gradient-to-r from-cyan-600 via-teal-700 to-slate-900 text-white shadow-md shadow-cyan-950/25 ring-1 ring-cyan-500/50'
-                           : 'bg-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-                     }`}
-                  >
-                     <Snowflake className='w-4 h-4 text-cyan-300' />
-                     <span>Заморозка</span>
-                     <span
-                        className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                           activeTab === 'freezer'
-                              ? 'bg-white/20 text-white'
-                              : 'bg-cyan-50 text-cyan-700'
-                        }`}
-                     >
-                        Сырьё
-                     </span>
-                  </button>
+                     {/* Вкладка «Генератор ценников» */}
+                     {hasPermission(TAB_PERMISSION_MAP.price_tags) && (
+                        <button
+                           type='button'
+                           onClick={() => setActiveTab('price_tags')}
+                           className={`px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all flex items-center gap-2 cursor-pointer ${
+                              effectiveTab === 'price_tags'
+                                 ? 'bg-gradient-to-r from-teal-600 via-cyan-600 to-indigo-700 text-white shadow-md shadow-teal-900/25 ring-1 ring-cyan-500/50'
+                                 : 'bg-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                           }`}
+                        >
+                           <Tag className='w-4 h-4 text-cyan-300' />
+                           <span>Ценники</span>
+                           <span
+                              className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                 effectiveTab === 'price_tags'
+                                    ? 'bg-white/20 text-white'
+                                    : 'bg-cyan-50 text-cyan-700'
+                              }`}
+                           >
+                              Генератор
+                           </span>
+                        </button>
+                     )}
+                  </div>
 
-                  {/* Вкладка «Генератор ценников» */}
-                  <button
-                     type='button'
-                     onClick={() => setActiveTab('price_tags')}
-                     className={`px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all flex items-center gap-2 cursor-pointer ${
-                        activeTab === 'price_tags'
-                           ? 'bg-gradient-to-r from-teal-600 via-cyan-600 to-indigo-700 text-white shadow-md shadow-teal-900/25 ring-1 ring-cyan-500/50'
-                           : 'bg-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-                     }`}
-                  >
-                     <Tag className='w-4 h-4 text-cyan-300' />
-                     <span>Ценники</span>
-                     <span
-                        className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                           activeTab === 'price_tags'
-                              ? 'bg-white/20 text-white'
-                              : 'bg-cyan-50 text-cyan-700'
-                        }`}
-                     >
-                        Генератор
-                     </span>
-                  </button>
+                  {/* Быстрая подсказка / статус */}
+                  <div className='text-right text-[11px] text-slate-400 font-medium px-2 hidden sm:block'>
+                     {effectiveTab === 'main_plan'
+                        ? 'Чеклист 1С • Остатки и распределение'
+                        : effectiveTab === 'trial_novelties'
+                          ? 'Внутренний банк идей • Не попадает в прайс клиентов'
+                          : effectiveTab === 'finance'
+                            ? 'Финансовая оценка складских остатков • Оптовый прайс'
+                            : effectiveTab === 'tech_cards'
+                              ? 'Технологические карты • Справочник ингредиентов, нормы и контроль цеха'
+                              : effectiveTab === 'stock_analytics'
+                                ? 'История остатков по загрузкам • Все загруженные файлы'
+                                : effectiveTab === 'monthly_plan'
+                                  ? 'Месячный план производства • Контроль перебора и утилизации'
+                                  : effectiveTab === 'inventory'
+                                    ? 'Сверка склада 1С • Недостачи, излишки и отклонения'
+                                    : effectiveTab === 'freezer'
+                                      ? 'Склад заморозки • Остатки сырья и себестоимость'
+                                      : effectiveTab === 'price_tags'
+                                        ? 'Генератор ценников • Фирменные карточки ТопФиш (Х/К, Г/К, С/С, ВЯЛ)'
+                                        : 'База клиентов и контрагентов • Обзвон и контакты'}
+                  </div>
                </div>
-
-               {/* Быстрая подсказка / статус */}
-               <div className='text-right text-[11px] text-slate-400 font-medium px-2 hidden sm:block'>
-                  {activeTab === 'main_plan'
-                     ? 'Чеклист 1С • Остатки и распределение'
-                     : activeTab === 'trial_novelties'
-                       ? 'Внутренний банк идей • Не попадает в прайс клиентов'
-                       : activeTab === 'finance'
-                         ? 'Финансовая оценка складских остатков • Оптовый прайс'
-                         : activeTab === 'tech_cards'
-                           ? 'Технологические карты • Справочник ингредиентов, нормы и контроль цеха'
-                           : activeTab === 'stock_analytics'
-                             ? 'История остатков по загрузкам • Все загруженные файлы'
-                             : activeTab === 'monthly_plan'
-                               ? 'Месячный план производства • Контроль перебора и утилизации'
-                               : activeTab === 'inventory'
-                                 ? 'Сверка склада 1С • Недостачи, излишки и отклонения'
-                                 : activeTab === 'price_tags'
-                                   ? 'Генератор ценников • Фирменные карточки ТопФиш (Х/К, Г/К, С/С, ВЯЛ)'
-                                   : 'База клиентов и контрагентов • Обзвон и контакты'}
-               </div>
-            </div>
+            )}
 
             {/* База клиентов (обзвон) - монтируем постоянно в фоне, чтобы работа не сбрасывалась при переходе между вкладками */}
-            {hasPermission('MANAGE_CLIENTS') && (
-               <div className={activeTab === 'clients' ? 'block' : 'hidden'}>
+            {hasPermission(TAB_PERMISSION_MAP.clients) && (
+               <div className={effectiveTab === 'clients' ? 'block' : 'hidden'}>
                   <ClientsCallingTab
                      onCountChange={setClientsCount}
-                     isGlobalTabActive={activeTab === 'clients'}
+                     isGlobalTabActive={effectiveTab === 'clients'}
                      onRequestSwitchToCallingTab={() => setActiveTab('clients')}
                   />
                </div>
             )}
 
             {/* Контент активной вкладки */}
-            {activeTab === 'price_tags' ? (
+            {effectiveTab === null ? (
+               <div className='bg-white rounded-3xl border border-slate-200 p-8 sm:p-12 text-center max-w-xl mx-auto shadow-xs my-8'>
+                  <div className='w-16 h-16 bg-slate-100 text-slate-500 rounded-2xl flex items-center justify-center mx-auto mb-4'>
+                     <Lock className='w-8 h-8' />
+                  </div>
+                  <h3 className='text-xl font-bold text-slate-900 mb-2'>
+                     Нет доступных разделов
+                  </h3>
+                  <p className='text-sm text-slate-600'>
+                     Для вашей роли пока не открыт ни один раздел. Обратитесь к руководителю для настройки прав доступа.
+                  </p>
+               </div>
+            ) : effectiveTab === 'price_tags' && hasPermission(TAB_PERMISSION_MAP.price_tags) ? (
                <PriceTagsTab catalogItems={items} />
-            ) : activeTab === 'freezer' ? (
+            ) : effectiveTab === 'freezer' && hasPermission(TAB_PERMISSION_MAP.freezer) ? (
                <FreezerTab />
-            ) : activeTab === 'inventory' ? (
+            ) : effectiveTab === 'inventory' && hasPermission(TAB_PERMISSION_MAP.inventory) ? (
                <InventoryTab />
-            ) : activeTab === 'monthly_plan' ? (
+            ) : effectiveTab === 'monthly_plan' && hasPermission(TAB_PERMISSION_MAP.monthly_plan) ? (
                <MonthlyPlanTab />
-            ) : activeTab === 'finance' && hasPermission('FULL_ACCESS') ? (
+            ) : effectiveTab === 'finance' && hasPermission(TAB_PERMISSION_MAP.finance) ? (
                <FinancialAnalysisTab currentWeek={displayWeek} />
-            ) : activeTab === 'clients' ? (
+            ) : effectiveTab === 'clients' && hasPermission(TAB_PERMISSION_MAP.clients) ? (
                null
-            ) : activeTab === 'trial_novelties' ? (
+            ) : effectiveTab === 'trial_novelties' && hasPermission(TAB_PERMISSION_MAP.trial_novelties) ? (
                <TrialNoveltiesTab
                   currentWeek={displayWeek}
                   onStatsChange={setTrialStats}
                   onPlanChanged={() => fetchCurrentWeek(true)}
                />
-            ) : activeTab === 'stock_analytics' ? (
+            ) : effectiveTab === 'stock_analytics' && hasPermission(TAB_PERMISSION_MAP.stock_analytics) ? (
                <StockAnalyticsTab />
-            ) : activeTab === 'tech_cards' ? (
+            ) : effectiveTab === 'tech_cards' && hasPermission(TAB_PERMISSION_MAP.tech_cards) ? (
                <TechCardsTab />
-            ) : (
+            ) : effectiveTab === 'main_plan' && hasPermission(TAB_PERMISSION_MAP.main_plan) ? (
                <>
                   {/* Информационный баннер в основном плане, если есть новинки в отработке */}
-                  {trialStats.inTrial > 0 && !isViewingArchive && (
+                  {hasPermission(TAB_PERMISSION_MAP.trial_novelties) &&
+                     trialStats.inTrial > 0 &&
+                     !isViewingArchive && (
                      <div
                         onClick={() => setActiveTab('trial_novelties')}
                         className='mb-4 p-3.5 rounded-2xl bg-gradient-to-r from-amber-50 via-orange-50 to-amber-50 border border-amber-300/80 shadow-xs flex items-center justify-between gap-3 cursor-pointer hover:border-amber-400 hover:shadow-md transition'
@@ -1122,11 +1174,11 @@ export default function DashboardPage() {
                      />
                   )}
                </>
-            )}
+            ) : null}
          </main>
 
          {/* Окно подведения итогов по понедельникам */}
-         {needsReview && reviewWeek && !isReviewDismissed && (
+         {needsReview && reviewWeek && !isReviewDismissed && canReviewWeek && (
             <ReviewModal
                reviewWeek={reviewWeek}
                onReviewConfirmed={handleReviewConfirmed}
