@@ -857,14 +857,12 @@ export default function StockAnalyticsTab() {
           ) : (
             <div className="space-y-2">
               {uploads.map((u, idx) => {
-                // Вычисляем пропуск между текущим и следующим (более ранним) файлом строго по календарным дням
+                // Собираем список пропущенных календарных дней по отдельности (сверху вниз от свежего к раннему)
                 const currentUploadedAt = u.uploadedAt ? new Date(u.uploadedAt) : null;
                 const nextUploadedAt = uploads[idx + 1]?.uploadedAt ? new Date(uploads[idx + 1].uploadedAt) : null;
 
-                let gapDays = 0;
-                let gapStartDateStr = '';
-                let gapEndDateStr = '';
-                let suggestedGapDate: Date | null = null;
+                const missingDates: { date: Date; label: string; weekday: string }[] = [];
+                let hiddenOlderGapDays = 0;
 
                 if (currentUploadedAt && nextUploadedAt) {
                   const currentDay = new Date(currentUploadedAt.getFullYear(), currentUploadedAt.getMonth(), currentUploadedAt.getDate());
@@ -874,15 +872,18 @@ export default function StockAnalyticsTab() {
                   const missingCount = dayDiff - 1;
 
                   if (missingCount >= 1) {
-                    gapDays = missingCount;
-                    const startD = new Date(prevDay.getFullYear(), prevDay.getMonth(), prevDay.getDate() + 1);
-                    const endD = new Date(currentDay.getFullYear(), currentDay.getMonth(), currentDay.getDate() - 1);
+                    const maxIndividualRows = 31;
+                    const limit = Math.min(missingCount, maxIndividualRows);
+                    hiddenOlderGapDays = Math.max(0, missingCount - maxIndividualRows);
 
-                    gapStartDateStr = startD.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' });
-                    gapEndDateStr = endD.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' });
-
-                    // Предлагаем загрузить первый пропущенный день
-                    suggestedGapDate = startD;
+                    for (let dOffset = 1; dOffset <= limit; dOffset++) {
+                      const mDate = new Date(currentDay.getFullYear(), currentDay.getMonth(), currentDay.getDate() - dOffset, 12, 0);
+                      missingDates.push({
+                        date: mDate,
+                        label: mDate.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' }),
+                        weekday: mDate.toLocaleDateString('ru-RU', { weekday: 'short' }),
+                      });
+                    }
                   }
                 }
 
@@ -989,27 +990,39 @@ export default function StockAnalyticsTab() {
                       </div>
                     </div>
 
-                    {/* Разделитель-уведомление о пропущенных днях */}
-                    {gapDays >= 1 && (
-                      <div className="my-2 p-3 rounded-2xl bg-gradient-to-r from-amber-50/90 via-orange-50/70 to-amber-50/90 border border-dashed border-amber-300 shadow-2xs flex items-center justify-between gap-3 flex-wrap animate-in fade-in duration-200">
-                        <div className="flex items-center gap-2.5 text-xs text-amber-900">
-                          <span className="w-2.5 h-2.5 rounded-full bg-amber-500 shrink-0" />
-                          <span>
-                            <strong>Пропуск выгрузки: {formatDaysPlural(gapDays)}</strong>
-                            {' '}без данных ({gapDays === 1 ? gapStartDateStr : `${gapStartDateStr} — ${gapEndDateStr}`})
-                          </span>
-                        </div>
-                        <button
-                          onClick={() => {
-                            setSelectedGapDate(suggestedGapDate);
-                            setSelectedGapWeekId(u.weekId);
-                            setIsDateUploadOpen(true);
-                          }}
-                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold text-[11px] shadow-sm shadow-amber-500/20 transition cursor-pointer"
-                        >
-                          <Plus className="w-3 h-3" />
-                          <span>Заполнить пропуск на {gapStartDateStr}</span>
-                        </button>
+                    {/* Уведомления о каждом пропущенном дне по отдельности */}
+                    {missingDates.length > 0 && (
+                      <div className="space-y-1.5 my-1.5">
+                        {missingDates.map((md) => (
+                          <div
+                            key={md.date.toISOString()}
+                            className="px-4 py-2.5 rounded-2xl bg-gradient-to-r from-amber-50/90 via-orange-50/65 to-amber-50/90 border border-dashed border-amber-300 shadow-2xs flex items-center justify-between gap-3 flex-wrap animate-in fade-in duration-200"
+                          >
+                            <div className="flex items-center gap-2.5 text-xs text-amber-900">
+                              <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0" />
+                              <span>
+                                Пропуск выгрузки за <strong>{md.label}</strong>{' '}
+                                <span className="text-amber-700/80">({md.weekday})</span> — нет данных
+                              </span>
+                            </div>
+                            <button
+                              onClick={() => {
+                                setSelectedGapDate(md.date);
+                                setSelectedGapWeekId(undefined);
+                                setIsDateUploadOpen(true);
+                              }}
+                              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold text-[11px] shadow-sm shadow-amber-500/20 transition cursor-pointer"
+                            >
+                              <Plus className="w-3 h-3" />
+                              <span>Заполнить пропуск на {md.label}</span>
+                            </button>
+                          </div>
+                        ))}
+                        {hiddenOlderGapDays > 0 && (
+                          <div className="px-4 py-2 rounded-xl bg-amber-50/60 border border-dashed border-amber-200 text-[11px] text-amber-800 text-center">
+                            ... и ещё {formatDaysPlural(hiddenOlderGapDays)} более ранних пропусков (можно загрузить через кнопку «Загрузить файл на дату»)
+                          </div>
+                        )}
                       </div>
                     )}
                   </React.Fragment>

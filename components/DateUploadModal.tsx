@@ -104,6 +104,8 @@ export default function DateUploadModal({
     return getISOWeekInfo(currentTargetDate);
   }, [currentTargetDate]);
 
+  const isDateLocked = Boolean(initialDate);
+
   // Проверяем, является ли выбранная дата исторической (более 2 часов в прошлом)
   const isPastDate = useMemo(() => {
     const now = new Date();
@@ -131,17 +133,19 @@ export default function DateUploadModal({
     setFile(selected);
     setPendingConfirmation(null);
 
-    // Автоматическое распознавание даты из названия файла
-    const extracted = extractDateFromFileName(selected.name);
-    if (extracted) {
-      setDateStr(toDateInputString(extracted));
-      setTimeStr(toTimeInputString(extracted));
-      setAutoDetected({ detected: true, date: extracted });
-      // Для исторических файлов витринную авто-синхронизацию отключаем
-      const isHistorical = extracted.getTime() < new Date().getTime() - 2 * 60 * 60 * 1000;
-      setAutoSyncPrice(!isHistorical);
-    } else {
-      setAutoDetected({ detected: false, date: null });
+    // Автоматическое распознавание даты из названия файла (только если дата не зафиксирована кнопкой пропуска)
+    if (!isDateLocked) {
+      const extracted = extractDateFromFileName(selected.name);
+      if (extracted) {
+        setDateStr(toDateInputString(extracted));
+        setTimeStr(toTimeInputString(extracted));
+        setAutoDetected({ detected: true, date: extracted });
+        // Для исторических файлов витринную авто-синхронизацию отключаем
+        const isHistorical = extracted.getTime() < new Date().getTime() - 2 * 60 * 60 * 1000;
+        setAutoSyncPrice(!isHistorical);
+      } else {
+        setAutoDetected({ detected: false, date: null });
+      }
     }
   };
 
@@ -310,8 +314,8 @@ export default function DateUploadModal({
                 </p>
               </div>
 
-              {/* Авто-определение даты из имени файла */}
-              {autoDetected.detected && (
+              {/* Авто-определение даты из имени файла (только при свободном выборе даты) */}
+              {!isDateLocked && autoDetected.detected && (
                 <div className="p-3 rounded-2xl bg-emerald-50 border border-emerald-200 flex items-center gap-2.5 text-xs text-emerald-800">
                   <Sparkles className="w-4 h-4 text-emerald-600 shrink-0" />
                   <div>
@@ -328,58 +332,95 @@ export default function DateUploadModal({
                 </div>
               )}
 
-              {/* Блок выбора даты и времени */}
-              <div className="bg-slate-50/80 rounded-2xl border border-slate-200 p-4 space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
-                    <Calendar className="w-3.5 h-3.5 text-cyan-600" />
-                    Дата и время выгрузки:
-                  </span>
-                  <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-cyan-100 text-cyan-800 border border-cyan-200">
-                    Неделя №{weekInfo.weekNumber} ({weekInfo.year})
-                  </span>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-[11px] font-semibold text-slate-500 mb-1">
-                      Дата файла
-                    </label>
-                    <input
-                      type="date"
-                      value={dateStr}
-                      onChange={(e) => {
-                        setDateStr(e.target.value);
-                        setAutoDetected({ detected: false, date: null });
-                      }}
-                      className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-cyan-500"
-                    />
+              {/* Фиксированная дата (если нажата кнопка «Заполнить пропуск») либо выбор даты */}
+              {isDateLocked ? (
+                <div className="bg-cyan-50/70 rounded-2xl border border-cyan-200 p-4 space-y-2">
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-9 h-9 rounded-xl bg-cyan-500/15 text-cyan-700 flex items-center justify-center shrink-0">
+                        <Calendar className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <p className="text-[11px] font-semibold text-cyan-800/80">
+                          Загрузка строго на выбранный день:
+                        </p>
+                        <p className="text-sm font-extrabold text-slate-900">
+                          {currentTargetDate.toLocaleDateString('ru-RU', {
+                            day: '2-digit',
+                            month: '2-digit',
+                            year: 'numeric',
+                          })}{' '}
+                          <span className="text-xs font-semibold text-slate-500">
+                            ({currentTargetDate.toLocaleDateString('ru-RU', { weekday: 'long' })})
+                          </span>
+                        </p>
+                      </div>
+                    </div>
+                    <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-cyan-100 text-cyan-800 border border-cyan-200">
+                      Неделя №{weekInfo.weekNumber} ({weekInfo.year})
+                    </span>
                   </div>
-
-                  <div>
-                    <label className="block text-[11px] font-semibold text-slate-500 mb-1">
-                      Время выгрузки
-                    </label>
-                    <input
-                      type="time"
-                      value={timeStr}
-                      onChange={(e) => {
-                        setTimeStr(e.target.value);
-                        setAutoDetected({ detected: false, date: null });
-                      }}
-                      className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-cyan-500"
-                    />
+                  <div className="text-[11px] text-slate-500 flex items-center gap-1.5 pt-1 border-t border-cyan-200/60">
+                    <Clock className="w-3.5 h-3.5 text-cyan-600/70 shrink-0" />
+                    <span>
+                      Период недели: {weekInfo.monday.toLocaleDateString('ru-RU')} —{' '}
+                      {weekInfo.sunday.toLocaleDateString('ru-RU')}
+                    </span>
                   </div>
                 </div>
+              ) : (
+                <div className="bg-slate-50/80 rounded-2xl border border-slate-200 p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                      <Calendar className="w-3.5 h-3.5 text-cyan-600" />
+                      Дата и время выгрузки:
+                    </span>
+                    <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-cyan-100 text-cyan-800 border border-cyan-200">
+                      Неделя №{weekInfo.weekNumber} ({weekInfo.year})
+                    </span>
+                  </div>
 
-                <div className="text-[11px] text-slate-500 flex items-center gap-1.5 pt-1">
-                  <Clock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                  <span>
-                    Период недели: {weekInfo.monday.toLocaleDateString('ru-RU')} —{' '}
-                    {weekInfo.sunday.toLocaleDateString('ru-RU')}
-                  </span>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-500 mb-1">
+                        Дата файла
+                      </label>
+                      <input
+                        type="date"
+                        value={dateStr}
+                        onChange={(e) => {
+                          setDateStr(e.target.value);
+                          setAutoDetected({ detected: false, date: null });
+                        }}
+                        className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-500 mb-1">
+                        Время выгрузки
+                      </label>
+                      <input
+                        type="time"
+                        value={timeStr}
+                        onChange={(e) => {
+                          setTimeStr(e.target.value);
+                          setAutoDetected({ detected: false, date: null });
+                        }}
+                        className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="text-[11px] text-slate-500 flex items-center gap-1.5 pt-1">
+                    <Clock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                    <span>
+                      Период недели: {weekInfo.monday.toLocaleDateString('ru-RU')} —{' '}
+                      {weekInfo.sunday.toLocaleDateString('ru-RU')}
+                    </span>
+                  </div>
                 </div>
-              </div>
+              )}
 
               {/* Уведомление об исторической загрузке */}
               {isPastDate && (
