@@ -650,13 +650,14 @@ export async function drawTagBackToCanvas(
 }
 
 // Генератор PDF документа со строгой сеткой ценников 10см х 6см на листах А4 (8 шт на страницу)
-// с полной поддержкой двусторонней печати (лицевая сторона + зеркальная оборотная с кодами для весов)
+// без белых межстрочных зазоров, с синими вылетами 1.5 мм слева и справа и точными метками реза
 export async function generatePriceTagsPdf(
    tags: PriceTagItem[],
    drawFn: (
       tag: PriceTagItem,
       canvas: HTMLCanvasElement,
-      scale?: number
+      scale?: number,
+      sideSafeMarginPx?: number
    ) => Promise<void>,
    drawBackFn?: (
       tag: PriceTagItem,
@@ -667,8 +668,17 @@ export async function generatePriceTagsPdf(
 ): Promise<Blob> {
    const cardW = 283.465 // 100mm в pt (72 pt / inch * 100mm / 25.4mm)
    const cardH = 170.079 // 60mm в pt
+   const bleedW = 4.252 // 1.5mm внешний синий вылет слева и справа от ценников
    const colX = [14.173, 297.638] // 5mm и 105mm слева
-   const rowY = [649.134, 470.551, 291.968, 113.385] // 4 ряда по вертикали (снизу вверх)
+   const topMarginPt = 34.016 // 12mm сверху листа А4
+   const row0Bottom = 841.89 - topMarginPt - cardH
+   // 4 ряда вплотную друг к другу (0 мм зазора — убираем белую полосу между рядами для реза в 1 движение)
+   const rowY = [
+      row0Bottom,
+      row0Bottom - cardH,
+      row0Bottom - cardH * 2,
+      row0Bottom - cardH * 3,
+   ]
 
    const tagsPerPage = 8
    const numBatches = Math.max(1, Math.ceil(tags.length / tagsPerPage))
@@ -682,6 +692,39 @@ export async function generatePriceTagsPdf(
       widthPx: number
       heightPx: number
       objNum: number
+      leftRgb: [number, number, number]
+      rightRgb: [number, number, number]
+   }
+
+   const sampleEdgeRgb = (
+      canvas: HTMLCanvasElement,
+      isRight: boolean
+   ): [number, number, number] => {
+      const fallback: [number, number, number] = [23 / 255, 29 / 255, 65 / 255]
+      try {
+         const ctx = canvas.getContext('2d')
+         if (!ctx) return fallback
+         const x = isRight ? canvas.width - 2 : 1
+         // Сэмплируем цвет строго из верхней половины края (выше плашки ВЯЛ/Х/К внизу), чтобы полоса всегда была синей
+         const ratios = [0.1, 0.22, 0.35, 0.48]
+         let r = 0
+         let g = 0
+         let b = 0
+         for (const ratio of ratios) {
+            const y = Math.min(
+               canvas.height - 1,
+               Math.max(0, Math.round(canvas.height * ratio))
+            )
+            const px = ctx.getImageData(x, y, 1, 1).data
+            r += px[0]
+            g += px[1]
+            b += px[2]
+         }
+         const n = ratios.length
+         return [r / (n * 255), g / (n * 255), b / (n * 255)]
+      } catch {
+         return fallback
+      }
    }
 
    const frontImages: RenderedImg[] = []
@@ -690,7 +733,10 @@ export async function generatePriceTagsPdf(
    if (needFront) {
       for (const tag of tags) {
          const offCanvas = document.createElement('canvas')
-         await drawFn(tag, offCanvas, 1.5)
+         // 16px (~1.56мм) внутренний безопасный отступ по краям, чтобы нарезатель не задел "ВЯЛ" или граммовку
+         await drawFn(tag, offCanvas, 1.5, 16)
+         const leftRgb = sampleEdgeRgb(offCanvas, false)
+         const rightRgb = sampleEdgeRgb(offCanvas, true)
          const dataUrl = offCanvas.toDataURL('image/jpeg', 0.92)
          const base64 = dataUrl.split(',')[1]
          const binaryStr = atob(base64)
@@ -702,6 +748,8 @@ export async function generatePriceTagsPdf(
             widthPx: offCanvas.width,
             heightPx: offCanvas.height,
             objNum: 0,
+            leftRgb,
+            rightRgb,
          })
       }
    }
@@ -721,6 +769,8 @@ export async function generatePriceTagsPdf(
             widthPx: offCanvas.width,
             heightPx: offCanvas.height,
             objNum: 0,
+            leftRgb: [1, 1, 1],
+            rightRgb: [1, 1, 1],
          })
       }
    }
@@ -730,7 +780,11 @@ export async function generatePriceTagsPdf(
       col: number
       row: number
    }
-   const pdfPages: PageSlot[][] = []
+   type PdfPage = {
+      slots: PageSlot[]
+      isBack: boolean
+   }
+   const pdfPages: PdfPage[] = []
 
    for (let b = 0; b < numBatches; b++) {
       const start = b * tagsPerPage
@@ -747,7 +801,7 @@ export async function generatePriceTagsPdf(
                pageSlots.push({ image: frontImages[tagIdx], col, row })
             }
          }
-         pdfPages.push(pageSlots)
+         pdfPages.push({ slots: pageSlots, isBack: false })
       }
 
       // 2. Оборотная страница (ГОРИЗОНТАЛЬНО ЗЕРКАЛЬНАЯ по колонкам для идеального двустороннего переворота)
@@ -767,7 +821,7 @@ export async function generatePriceTagsPdf(
                pageSlots.push({ image: backImages[leftIdx], col: 1, row: r })
             }
          }
-         pdfPages.push(pageSlots)
+         pdfPages.push({ slots: pageSlots, isBack: true })
       }
    }
 
@@ -818,10 +872,42 @@ export async function generatePriceTagsPdf(
    for (let p = 0; p < totalPages; p++) {
       const pageObjNum = 3 + p * 2
       const contentObjNum = 4 + p * 2
-      const pageSlots = pdfPages[p]
+      const page = pdfPages[p]
+      const pageSlots = page.slots
 
       let contentStream = 'q\n'
       const pageXObjects: { name: string; objNum: number }[] = []
+
+      // Для лицевой стороны рисуем синий вылет 1.5 мм слева и справа от ценников и сплошную подложку под рядами
+      if (!page.isBack && pageSlots.length > 0) {
+         const rowsMap = new Map<number, PageSlot[]>()
+         for (const slot of pageSlots) {
+            const list = rowsMap.get(slot.row) || []
+            list.push(slot)
+            rowsMap.set(slot.row, list)
+         }
+         rowsMap.forEach((slotsInRow, rIdx) => {
+            slotsInRow.sort((a, b) => a.col - b.col)
+            const firstSlot = slotsInRow[0]
+            const lastSlot = slotsInRow[slotsInRow.length - 1]
+            const y = rowY[rIdx]
+            const [lr, lg, lb] = firstSlot.image.leftRgb
+            const [rr, rg, rb] = lastSlot.image.rightRgb
+
+            // Левый вылет 1.5 мм синим цветом (слева от левой линии реза и шильдика)
+            const leftBleedX = colX[firstSlot.col] - bleedW
+            contentStream += `q ${lr.toFixed(3)} ${lg.toFixed(3)} ${lb.toFixed(3)} rg ${leftBleedX.toFixed(3)} ${(y - 0.15).toFixed(3)} ${(bleedW + 1.0).toFixed(3)} ${(cardH + 0.3).toFixed(3)} re f Q\n`
+
+            // Правый вылет 1.5 мм синим цветом (справа от правой линии реза)
+            const rightBleedX = colX[lastSlot.col] + cardW - 1.0
+            contentStream += `q ${rr.toFixed(3)} ${rg.toFixed(3)} ${rb.toFixed(3)} rg ${rightBleedX.toFixed(3)} ${(y - 0.15).toFixed(3)} ${(bleedW + 1.0).toFixed(3)} ${(cardH + 0.3).toFixed(3)} re f Q\n`
+
+            // Сплошная синяя подложка за рядом, исключающая просвет белой полосы на стыках
+            const bgStartX = colX[firstSlot.col]
+            const bgEndX = colX[lastSlot.col] + cardW
+            contentStream += `q ${lr.toFixed(3)} ${lg.toFixed(3)} ${lb.toFixed(3)} rg ${bgStartX.toFixed(3)} ${(y - 0.15).toFixed(3)} ${(bgEndX - bgStartX).toFixed(3)} ${(cardH + 0.3).toFixed(3)} re f Q\n`
+         })
+      }
 
       pageSlots.forEach((slot, sIdx) => {
          const imgName = `ImP${p + 1}_${sIdx + 1}`
@@ -830,6 +916,74 @@ export async function generatePriceTagsPdf(
          const y = rowY[slot.row].toFixed(3)
          contentStream += `q ${cardW.toFixed(3)} 0 0 ${cardH.toFixed(3)} ${x} ${y} cm /${imgName} Do Q\n`
       })
+
+      // Метки реза (чёрточки): ровно по границам ценников 100х60 мм (в самом верху по краю шильдика и внизу)
+      if (pageSlots.length > 0) {
+         const tickLen = 14.173 // 5 mm длина чёрточки
+         const gapPt = 1.0 // аккуратный зазор от края ценника (~0.35 мм)
+
+         // Группируем крайние ряды для каждой вертикальной линии реза X
+         const xBounds = new Map<string, { minRow: number; maxRow: number }>()
+         for (const s of pageSlots) {
+            const edges = [colX[s.col].toFixed(3), (colX[s.col] + cardW).toFixed(3)]
+            for (const xKey of edges) {
+               const cur = xBounds.get(xKey)
+               if (!cur) {
+                  xBounds.set(xKey, { minRow: s.row, maxRow: s.row })
+               } else {
+                  cur.minRow = Math.min(cur.minRow, s.row)
+                  cur.maxRow = Math.max(cur.maxRow, s.row)
+               }
+            }
+         }
+
+         contentStream += 'q 0.75 w 0.100 0.100 0.100 RG\n'
+         xBounds.forEach(({ minRow, maxRow }, xStr) => {
+            const topY = rowY[minRow] + cardH
+            const bottomY = rowY[maxRow]
+            // Чёрточка в самом верху ценника (ровно по левому краю шильдика, центру и правому краю перед вылетом)
+            contentStream += `${xStr} ${(topY + gapPt).toFixed(3)} m ${xStr} ${(topY + gapPt + tickLen).toFixed(3)} l S\n`
+            // Ответная чёрточка снизу под последним рядом этой колонки
+            contentStream += `${xStr} ${(bottomY - gapPt).toFixed(3)} m ${xStr} ${(bottomY - gapPt - tickLen).toFixed(3)} l S\n`
+         })
+
+         // Горизонтальные чёрточки строго снаружи синих вылетов в белом поле (без белых точек на углах)
+         if (!page.isBack) {
+            const leftSideTicks = new Set<string>()
+            const rightSideTicks = new Set<string>()
+            const rowsMap = new Map<number, PageSlot[]>()
+            for (const slot of pageSlots) {
+               const list = rowsMap.get(slot.row) || []
+               list.push(slot)
+               rowsMap.set(slot.row, list)
+            }
+            rowsMap.forEach((slotsInRow, rIdx) => {
+               slotsInRow.sort((a, b) => a.col - b.col)
+               const leftX = colX[slotsInRow[0].col]
+               const rightX = colX[slotsInRow[slotsInRow.length - 1].col] + cardW
+               const yBottom = rowY[rIdx]
+               const yTop = yBottom + cardH
+               leftSideTicks.add(`${leftX.toFixed(3)}|${yTop.toFixed(3)}`)
+               leftSideTicks.add(`${leftX.toFixed(3)}|${yBottom.toFixed(3)}`)
+               rightSideTicks.add(`${rightX.toFixed(3)}|${yTop.toFixed(3)}`)
+               rightSideTicks.add(`${rightX.toFixed(3)}|${yBottom.toFixed(3)}`)
+            })
+
+            const hTickLen = 7.5 // ~2.6 mm в белом поле снаружи вылета
+            leftSideTicks.forEach((entry) => {
+               const [xStr, yStr] = entry.split('|')
+               const bleedStart = Number(xStr) - bleedW
+               contentStream += `${(bleedStart - gapPt - hTickLen).toFixed(3)} ${yStr} m ${(bleedStart - gapPt).toFixed(3)} ${yStr} l S\n`
+            })
+            rightSideTicks.forEach((entry) => {
+               const [xStr, yStr] = entry.split('|')
+               const bleedEnd = Number(xStr) + bleedW
+               contentStream += `${(bleedEnd + gapPt).toFixed(3)} ${yStr} m ${(bleedEnd + gapPt + hTickLen).toFixed(3)} ${yStr} l S\n`
+            })
+         }
+         contentStream += 'Q\n'
+      }
+
       contentStream += 'Q\n'
 
       const xobjDict = pageXObjects
@@ -892,7 +1046,8 @@ export async function generatePriceTagsWord(
    drawFn: (
       tag: PriceTagItem,
       canvas: HTMLCanvasElement,
-      scale?: number
+      scale?: number,
+      sideSafeMarginPx?: number
    ) => Promise<void>,
    drawBackFn?: (
       tag: PriceTagItem,
@@ -911,7 +1066,7 @@ export async function generatePriceTagsWord(
    if (needFront) {
       for (const tag of tags) {
          const offCanvas = document.createElement('canvas')
-         await drawFn(tag, offCanvas, 1.5)
+         await drawFn(tag, offCanvas, 1.5, 16)
          frontImagesBase64.push(offCanvas.toDataURL('image/jpeg', 0.92))
       }
    }
@@ -950,8 +1105,8 @@ export async function generatePriceTagsWord(
 
             rowsHtml += `
             <tr style="height:60mm;">
-              <td style="width:100mm; height:60mm; padding:1.5mm 0; text-align:center; vertical-align:middle;">${img1}</td>
-              <td style="width:100mm; height:60mm; padding:1.5mm 0; text-align:center; vertical-align:middle;">${img2}</td>
+              <td style="width:100mm; height:60mm; padding:0; border:0; text-align:center; vertical-align:middle;">${img1}</td>
+              <td style="width:100mm; height:60mm; padding:0; border:0; text-align:center; vertical-align:middle;">${img2}</td>
             </tr>`
          }
 
@@ -961,7 +1116,7 @@ export async function generatePriceTagsWord(
            <div style="font-size:10pt; color:#666; margin-bottom:2mm; text-align:center;">
              Лист ${b * (needBack ? 2 : 1) + 1} • Лицевая сторона ценников (10×6 см)
            </div>
-           <table style="width:200mm; border-collapse:collapse; margin:0 auto; table-layout:fixed;">
+           <table style="width:200mm; border-collapse:collapse; margin:0 auto; table-layout:fixed;" cellpadding="0" cellspacing="0">
              ${rowsHtml}
            </table>
          </div>`
@@ -985,8 +1140,8 @@ export async function generatePriceTagsWord(
 
             rowsHtml += `
             <tr style="height:60mm;">
-              <td style="width:100mm; height:60mm; padding:1.5mm 0; text-align:center; vertical-align:middle;">${imgLeft}</td>
-              <td style="width:100mm; height:60mm; padding:1.5mm 0; text-align:center; vertical-align:middle;">${imgRight}</td>
+              <td style="width:100mm; height:60mm; padding:0; border:0; text-align:center; vertical-align:middle;">${imgLeft}</td>
+              <td style="width:100mm; height:60mm; padding:0; border:0; text-align:center; vertical-align:middle;">${imgRight}</td>
             </tr>`
          }
 
@@ -996,7 +1151,7 @@ export async function generatePriceTagsWord(
            <div style="font-size:10pt; color:#666; margin-bottom:2mm; text-align:center;">
              Лист ${b * 2 + 2} • Оборотная сторона (крупные коды для весов / PLU)
            </div>
-           <table style="width:200mm; border-collapse:collapse; margin:0 auto; table-layout:fixed;">
+           <table style="width:200mm; border-collapse:collapse; margin:0 auto; table-layout:fixed;" cellpadding="0" cellspacing="0">
              ${rowsHtml}
            </table>
          </div>`
@@ -1189,7 +1344,8 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
    const drawTagToCanvas = async (
       tag: PriceTagItem,
       targetCanvas: HTMLCanvasElement,
-      scale: number = 1
+      scale: number = 1,
+      sideSafeMarginPx: number = 0
    ): Promise<void> => {
       const ctx = targetCanvas.getContext('2d')
       if (!ctx) return
@@ -1275,17 +1431,20 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
       )
       const badgeTop = baseH - badgeH
       const radius = Math.round(42 * badgeScale)
+      // Шильдик начинается ровно от x=0 (по линии реза); синий вылет 1.5 мм находится слева снаружи в PDF
+      const badgeStartX = 0
+      const badgeEndX = badgeW
 
       ctx.save()
       ctx.beginPath()
-      ctx.moveTo(0, baseH)
-      ctx.lineTo(0, badgeTop)
-      ctx.lineTo(badgeW - radius, badgeTop)
-      ctx.arcTo(badgeW, badgeTop, badgeW, badgeTop + radius, radius)
-      ctx.lineTo(badgeW, baseH)
+      ctx.moveTo(badgeStartX, baseH)
+      ctx.lineTo(badgeStartX, badgeTop)
+      ctx.lineTo(badgeEndX - radius, badgeTop)
+      ctx.arcTo(badgeEndX, badgeTop, badgeEndX, badgeTop + radius, radius)
+      ctx.lineTo(badgeEndX, baseH)
       ctx.closePath()
 
-      const grad = ctx.createLinearGradient(0, 0, badgeW, 0)
+      const grad = ctx.createLinearGradient(badgeStartX, 0, badgeEndX, 0)
       grad.addColorStop(0, proc.colorStart)
       grad.addColorStop(1, proc.colorEnd)
       ctx.fillStyle = grad
@@ -1294,7 +1453,11 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
       ctx.fillStyle = '#151b32'
       ctx.textAlign = 'center'
       ctx.textBaseline = 'middle'
-      ctx.fillText(proc.badgeText, badgeW / 2 - 4, badgeTop + badgeH / 2 + 2)
+      ctx.fillText(
+         proc.badgeText,
+         badgeStartX + badgeW / 2 - 4,
+         badgeTop + badgeH / 2 + 2
+      )
       ctx.restore()
 
       // 4. Отрисовка фирменного логотипа ТопФиш в правом нижнем углу
@@ -1320,7 +1483,7 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
             const logoH = Math.round((logoW * logoImg.height) / logoImg.width)
             ctx.drawImage(
                logoImg,
-               baseW - logoW - 36,
+               baseW - logoW - 36 - sideSafeMarginPx,
                baseH - logoH - 28,
                logoW,
                logoH
@@ -1330,9 +1493,13 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
             ctx.fillStyle = '#ffffff'
             ctx.font = 'bold 22px serif'
             ctx.textAlign = 'right'
-            ctx.fillText('ТОПФИШ', baseW - 40, baseH - 45)
+            ctx.fillText('ТОПФИШ', baseW - 40 - sideSafeMarginPx, baseH - 45)
             ctx.font = '12px sans-serif'
-            ctx.fillText('КОПЧЕНАЯ РЫБА', baseW - 40, baseH - 28)
+            ctx.fillText(
+               'КОПЧЕНАЯ РЫБА',
+               baseW - 40 - sideSafeMarginPx,
+               baseH - 28
+            )
             ctx.restore()
          }
       }
@@ -1440,8 +1607,8 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
       }
 
       const totalGroupW = fullPriceW + (cleanWeight ? weightPillW + 18 : 0)
-      // Прижатие цены с весом к правому краю (в точном соответствии с референсом)
-      const rightMargin = cleanWeight ? 14 : 36
+      // Прижатие цены с весом к правому краю (с безопасным отступом при экспорте для резки)
+      const rightMargin = (cleanWeight ? 14 : 36) + sideSafeMarginPx
       const baseGroupStartX = Math.max(20, baseW - totalGroupW - rightMargin)
       const priceOffsetX =
          tag.priceOffsetX !== undefined
@@ -1458,7 +1625,7 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
       // Гарантированная защита от наложения цены на плашку обработки (Х/К, Г/К, С/С, ВЯЛ):
       // Полувысота цифр цены от центра (middle) вниз составляет ~0.38 * priceSize
       const priceHalfH = Math.round(priceSize * 0.38)
-      if (groupStartX < badgeW + 24) {
+      if (groupStartX < badgeEndX + 24) {
          // Если группа цены по горизонтали заходит в зону плашки, удерживаем цену строго выше плашки
          const maxSafePriceY = badgeTop - 14 - priceHalfH
          if (priceY > maxSafePriceY) {
@@ -3474,7 +3641,7 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
               display: grid !important;
               grid-template-columns: 100mm 100mm !important;
               grid-auto-rows: 60mm !important;
-              gap: 3mm 0mm !important;
+              gap: 0mm 0mm !important;
               justify-content: center !important;
               width: 200mm !important;
             }
@@ -3664,7 +3831,11 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
                                     return (
                                        <div
                                           key={tag.id || tagIdx}
-                                          className='print-tag-card relative border border-slate-400 rounded-lg overflow-hidden'
+                                          className={
+                                             isEco
+                                                ? 'print-tag-card relative border border-dashed border-slate-400 overflow-hidden'
+                                                : 'print-tag-card relative overflow-hidden'
+                                          }
                                           style={{
                                              width: '100mm',
                                              height: '60mm',
@@ -3730,7 +3901,7 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
                                           <div
                                              className='absolute inset-x-0 bottom-0 top-[12%] flex items-center justify-end'
                                              style={{
-                                                paddingRight: cleanItemWeight ? '1.5%' : '3.5%',
+                                                paddingRight: cleanItemWeight ? '3%' : '5%',
                                              }}
                                           >
                                              <div
@@ -3793,7 +3964,7 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
 
                                           {/* Шильдик вида обработки */}
                                           <div
-                                             className='absolute left-0 bottom-0 flex items-center justify-center font-black'
+                                             className='absolute left-[1.5%] bottom-0 flex items-center justify-center font-black'
                                              style={{
                                                 height: '24%',
                                                 minWidth: '26%',
@@ -3827,7 +3998,7 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
                                           {/* Логотип ТопФиш */}
                                           {tag.showLogo && (
                                              <div
-                                                className='absolute right-[3.8%] bottom-[4.8%] w-[22%] max-w-[95px]'
+                                                className='absolute right-[5.3%] bottom-[4.8%] w-[22%] max-w-[95px]'
                                                 style={{
                                                    transform:
                                                       'scale(' +
