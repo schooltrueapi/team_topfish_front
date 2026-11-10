@@ -1043,7 +1043,7 @@ export default function DashboardPage() {
                   </p>
                </div>
             ) : effectiveTab === 'price_tags' && hasPermission(TAB_PERMISSION_MAP.price_tags) ? (
-               <PriceTagsTab catalogItems={items} />
+               <PriceTagsTab />
             ) : effectiveTab === 'freezer' && hasPermission(TAB_PERMISSION_MAP.freezer) ? (
                <FreezerTab />
             ) : effectiveTab === 'inventory' && hasPermission(TAB_PERMISSION_MAP.inventory) ? (

@@ -2,21 +2,17 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react'
 import toast from 'react-hot-toast'
+import { useAuth } from '@/context/AuthContext'
 import {
    Tag,
    Printer,
-   Download,
    Plus,
    Trash2,
-   Copy,
    Check,
-   Sparkles,
    Sliders,
    Eye,
    RefreshCw,
-   Search,
    Upload,
-   X,
    Type,
    Maximize2,
    Move,
@@ -27,7 +23,6 @@ import {
    FileDown,
    Sun,
    Hash,
-   FlipHorizontal,
 } from 'lucide-react'
 
 export interface PriceTagItem {
@@ -415,121 +410,6 @@ const DEFAULT_TAG: PriceTagItem = {
    badgeScale: TOPFISH_DEFAULTS.badgeScale,
    logoScale: TOPFISH_DEFAULTS.logoScale,
 }
-
-const SAMPLE_PRESETS: { name: string; tag: Omit<PriceTagItem, 'id'> }[] = [
-   {
-      name: '1. Колбаса (форель, тунец, масляная) • 500₽ • Х/К',
-      tag: {
-         title: 'КОЛБАСА',
-         description: 'ФОРЕЛЬ, ТУНЕЦ, МАСЛЯНАЯ',
-         weight: '',
-         price: '500',
-         currency: '₽',
-         processingType: 'XK',
-         textureMode: 'auto',
-         isItalic: true,
-         underlineDescription: true,
-         showLogo: true,
-         productCode: '2042',
-         titleFontSize: 0,
-         priceFontSize: 0,
-         titleOffsetY: TOPFISH_DEFAULTS.titleOffsetY,
-         titleOffsetX: TOPFISH_DEFAULTS.titleOffsetX,
-         priceOffsetY: TOPFISH_DEFAULTS.priceOffsetY,
-         priceOffsetX: TOPFISH_DEFAULTS.priceOffsetX,
-         weightFontSize: TOPFISH_DEFAULTS.weightFontSize,
-         weightOffsetY: TOPFISH_DEFAULTS.weightOffsetY,
-         weightOffsetX: TOPFISH_DEFAULTS.weightOffsetX,
-         weightBrightness: TOPFISH_DEFAULTS.weightBrightness,
-         badgeScale: TOPFISH_DEFAULTS.badgeScale,
-         logoScale: TOPFISH_DEFAULTS.logoScale,
-      },
-   },
-   {
-      name: '2. Терпуг • 3130₽ • Г/К',
-      tag: {
-         title: 'ТЕРПУГ',
-         description: '',
-         weight: '',
-         price: '3130',
-         currency: '₽',
-         processingType: 'GK',
-         textureMode: 'auto',
-         isItalic: true,
-         underlineDescription: true,
-         showLogo: true,
-         productCode: '3130',
-         titleFontSize: 0,
-         priceFontSize: 0,
-         titleOffsetY: TOPFISH_DEFAULTS.titleOffsetY,
-         titleOffsetX: TOPFISH_DEFAULTS.titleOffsetX,
-         priceOffsetY: TOPFISH_DEFAULTS.priceOffsetY,
-         priceOffsetX: TOPFISH_DEFAULTS.priceOffsetX,
-         weightFontSize: TOPFISH_DEFAULTS.weightFontSize,
-         weightOffsetY: TOPFISH_DEFAULTS.weightOffsetY,
-         weightOffsetX: TOPFISH_DEFAULTS.weightOffsetX,
-         weightBrightness: TOPFISH_DEFAULTS.weightBrightness,
-         badgeScale: TOPFISH_DEFAULTS.badgeScale,
-         logoScale: TOPFISH_DEFAULTS.logoScale,
-      },
-   },
-   {
-      name: '3. Скумбрия (без головы) • 1111₽ • С/С',
-      tag: {
-         title: 'СКУМБРИЯ',
-         description: 'БЕЗ ГОЛОВЫ',
-         weight: '',
-         price: '1111',
-         currency: '₽',
-         processingType: 'SS',
-         textureMode: 'auto',
-         isItalic: true,
-         underlineDescription: true,
-         showLogo: true,
-         productCode: '1111',
-         titleFontSize: 0,
-         priceFontSize: 0,
-         titleOffsetY: TOPFISH_DEFAULTS.titleOffsetY,
-         titleOffsetX: TOPFISH_DEFAULTS.titleOffsetX,
-         priceOffsetY: TOPFISH_DEFAULTS.priceOffsetY,
-         priceOffsetX: TOPFISH_DEFAULTS.priceOffsetX,
-         weightFontSize: TOPFISH_DEFAULTS.weightFontSize,
-         weightOffsetY: TOPFISH_DEFAULTS.weightOffsetY,
-         weightOffsetX: TOPFISH_DEFAULTS.weightOffsetX,
-         weightBrightness: TOPFISH_DEFAULTS.weightBrightness,
-         badgeScale: TOPFISH_DEFAULTS.badgeScale,
-         logoScale: TOPFISH_DEFAULTS.logoScale,
-      },
-   },
-   {
-      name: '4. Сиг / Язь • 3333₽ • 100г • ВЯЛ (Стандарт TopFish)',
-      tag: {
-         title: 'СИГ',
-         description: '',
-         weight: '100г',
-         price: '3333',
-         currency: '₽',
-         processingType: 'VYAL',
-         textureMode: 'auto',
-         isItalic: true,
-         underlineDescription: true,
-         showLogo: true,
-         productCode: '1154',
-         titleFontSize: 0,
-         priceFontSize: 0,
-         titleOffsetY: TOPFISH_DEFAULTS.titleOffsetY,
-         titleOffsetX: TOPFISH_DEFAULTS.titleOffsetX,
-         priceOffsetY: TOPFISH_DEFAULTS.priceOffsetY,
-         priceOffsetX: TOPFISH_DEFAULTS.priceOffsetX,
-         weightFontSize: TOPFISH_DEFAULTS.weightFontSize,
-         weightOffsetY: TOPFISH_DEFAULTS.weightOffsetY,
-         weightOffsetX: TOPFISH_DEFAULTS.weightOffsetX,
-         weightBrightness: TOPFISH_DEFAULTS.weightBrightness,
-         badgeScale: TOPFISH_DEFAULTS.badgeScale,
-         logoScale: TOPFISH_DEFAULTS.logoScale,
-      },
-   },
-]
 
 // Отрисовка оборотной стороны ценника на Canvas (крупный код товара для весов)
 export async function drawTagBackToCanvas(
@@ -1237,16 +1117,15 @@ export async function generatePriceTagsWord(
    return new Blob([mhtml], { type: 'application/msword;charset=utf-8' })
 }
 
-interface PriceTagsTabProps {
-   catalogItems?: any[]
-}
+export default function PriceTagsTab() {
+   const { user } = useAuth()
+   const queueStorageKey = user?.id
+      ? `topfish_price_tags_queue_${user.id}`
+      : 'topfish_price_tags_queue'
 
-export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
    const [currentTag, setCurrentTag] = useState<PriceTagItem>(DEFAULT_TAG)
    const [printQueue, setPrintQueue] = useState<PriceTagItem[]>([])
-   const [isCopied, setIsCopied] = useState(false)
-   const [isCatalogOpen, setIsCatalogOpen] = useState(false)
-   const [catalogSearch, setCatalogSearch] = useState('')
+   const [restoredQueueKey, setRestoredQueueKey] = useState<string | null>(null)
    const [printLayoutMode, setPrintLayoutMode] = useState<'color' | 'eco'>(
       'color'
    )
@@ -1254,6 +1133,63 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
    const [printSideMode, setPrintSideMode] = useState<
       'both' | 'front_only' | 'back_only'
    >('both')
+
+   // Восстановление очереди печати из localStorage при загрузке / переключении вкладки
+   useEffect(() => {
+      if (typeof window === 'undefined') return
+      try {
+         const raw = localStorage.getItem(queueStorageKey)
+         if (raw) {
+            const parsed = JSON.parse(raw)
+            if (Array.isArray(parsed)) {
+               const validItems = parsed.filter(
+                  (item): item is PriceTagItem =>
+                     Boolean(
+                        item &&
+                           typeof item === 'object' &&
+                           typeof item.id === 'string' &&
+                           typeof item.title === 'string'
+                     )
+               )
+               setPrintQueue(validItems)
+            } else {
+               setPrintQueue([])
+            }
+         } else {
+            setPrintQueue([])
+         }
+      } catch (err) {
+         console.error(
+            'Ошибка восстановления очереди печати из localStorage:',
+            err
+         )
+         setPrintQueue([])
+      } finally {
+         setRestoredQueueKey(queueStorageKey)
+      }
+   }, [queueStorageKey])
+
+   // Автоматическое сохранение очереди печати в localStorage при изменениях
+   useEffect(() => {
+      if (
+         typeof window === 'undefined' ||
+         restoredQueueKey !== queueStorageKey
+      ) {
+         return
+      }
+      try {
+         if (printQueue.length === 0) {
+            localStorage.removeItem(queueStorageKey)
+         } else {
+            localStorage.setItem(queueStorageKey, JSON.stringify(printQueue))
+         }
+      } catch (err) {
+         console.error(
+            'Ошибка сохранения очереди печати в localStorage:',
+            err
+         )
+      }
+   }, [printQueue, queueStorageKey, restoredQueueKey])
 
    // Эффективный лейаут названия с оптическим вертикальным балансом
    const effectiveTitleLayout = useMemo(() => {
@@ -1289,8 +1225,6 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
       return currentTag.weightFontSize || TOPFISH_DEFAULTS.weightFontSize
    }, [currentTag.weightFontSize])
 
-   // Скрытый Canvas для генерации и скачивания PNG
-   const canvasRef = useRef<HTMLCanvasElement | null>(null)
    const previewCardRef = useRef<HTMLDivElement | null>(null)
 
    // Кешированные изображения для Canvas
@@ -1328,13 +1262,6 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
       }
       return `/textures/${currentTag.textureMode}.jpg`
    }, [currentTag.textureMode, currentTag.customTextureUrl, currentProcConfig])
-
-   // Проверка: является ли заголовок одним словом (для динамического размера)
-   const isCurrentSingleWord = useMemo(() => {
-      const cleanDesc = (currentTag.description || '').trim()
-      const cleanTitle = (currentTag.title || '').trim()
-      return !cleanDesc && !!cleanTitle && cleanTitle.split(/\s+/).length === 1
-   }, [currentTag.title, currentTag.description])
 
    const cleanWeightText = useMemo(() => {
       return formatWeightText(currentTag.weight)
@@ -1693,82 +1620,6 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
       ctx.restore() // scale pop
    }
 
-   // Перерисовка Canvas при изменении параметров
-   useEffect(() => {
-      if (canvasRef.current) {
-         if (previewSide === 'back') {
-            drawTagBackToCanvas(currentTag, canvasRef.current, 1)
-         } else {
-            drawTagToCanvas(currentTag, canvasRef.current, 1)
-         }
-      }
-   }, [currentTag, currentProcConfig, activeTextureUrl, previewSide])
-
-   // Быстрое скачивание PNG
-   const handleDownloadPNG = async (scale: number = 1) => {
-      try {
-         const offCanvas = document.createElement('canvas')
-         if (previewSide === 'back') {
-            await drawTagBackToCanvas(currentTag, offCanvas, scale)
-         } else {
-            await drawTagToCanvas(currentTag, offCanvas, scale)
-         }
-         const dataUrl = offCanvas.toDataURL('image/png')
-         const link = document.createElement('a')
-         const safeTitle = (currentTag.title || 'Ценник').replace(
-            /[^a-zA-Zа-яА-Я0-9_-]/g,
-            '_'
-         )
-         const safeType = currentTag.processingType
-         const sideSuffix = previewSide === 'back' ? '_ОБОРОТ_КОД' : ''
-         const resSuffix = scale > 1 ? '_HD' : ''
-         link.download = `Ценник_${safeTitle}_${safeType}${sideSuffix}${resSuffix}.png`
-         link.href = dataUrl
-         link.click()
-         toast.success(
-            scale > 1
-               ? `Ценник (${previewSide === 'back' ? 'оборот с кодом' : 'лицевая'}) скачан в Ultra HD (2048×1228)!`
-               : `Ценник (${previewSide === 'back' ? 'оборот с кодом' : 'лицевая'}) скачан (1024×614)!`
-         )
-      } catch (e) {
-         console.error(e)
-         toast.error('Ошибка при генерации изображения')
-      }
-   }
-
-   // Копирование картинки в буфер обмена
-   const handleCopyImage = async () => {
-      try {
-         const offCanvas = document.createElement('canvas')
-         if (previewSide === 'back') {
-            await drawTagBackToCanvas(currentTag, offCanvas, 1)
-         } else {
-            await drawTagToCanvas(currentTag, offCanvas, 1)
-         }
-         offCanvas.toBlob(async (blob) => {
-            if (!blob) return
-            try {
-               await navigator.clipboard.write([
-                  new ClipboardItem({ 'image/png': blob }),
-               ])
-               setIsCopied(true)
-               toast.success(
-                  previewSide === 'back'
-                     ? 'Оборотная сторона с кодом скопирована!'
-                     : 'Изображение ценника скопировано!'
-               )
-               setTimeout(() => setIsCopied(false), 2000)
-            } catch (err) {
-               toast.error(
-                  'Ваш браузер заблокировал копирование картинки. Используйте Скачать PNG.'
-               )
-            }
-         }, 'image/png')
-      } catch (e) {
-         toast.error('Не удалось скопировать изображение')
-      }
-   }
-
    // Экспорт в PDF со строгим физическим размером 10см х 6см (сетка на листах А4)
    const handleExportPDF = async (tagsToExport?: PriceTagItem[]) => {
       const targetTags =
@@ -1888,11 +1739,6 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
       toast.success(`Ценник «${tag.title}» загружен в редактор`)
    }
 
-   // Печать текущего ценника
-   const handlePrintSingle = () => {
-      window.print()
-   }
-
    // Загрузка своего фона
    const handleUploadCustomTexture = (
       e: React.ChangeEvent<HTMLInputElement>
@@ -1918,263 +1764,18 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
       reader.readAsDataURL(file)
    }
 
-   // Умный парсер названия товара
-   const parseProductText = (rawName: string) => {
-      let text = rawName.trim()
-      let procType: 'XK' | 'GK' | 'SS' | 'VYAL' = 'XK'
-
-      const lower = text.toLowerCase()
-      if (
-         lower.includes('г/к') ||
-         lower.includes('г.к.') ||
-         lower.includes('горяч')
-      ) {
-         procType = 'GK'
-      } else if (
-         lower.includes('с/с') ||
-         lower.includes('слабосол') ||
-         lower.includes('солен')
-      ) {
-         procType = 'SS'
-      } else if (lower.includes('вял') || lower.includes('вялен')) {
-         procType = 'VYAL'
-      } else {
-         procType = 'XK'
-      }
-
-      text = text
-         .replace(
-            /(?:^|\s)(?:х\/к|х\.к\.|г\/к|г\.к\.|с\/с|с\.с\.|вял\.?|вяленая|вяленый)(?:$|\s)/gi,
-            ' '
-         )
-         .trim()
-
-      let title = text
-      let description = ''
-
-      const parenMatch = text.match(/\((.*?)\)/)
-      if (parenMatch) {
-         description = parenMatch[1].trim()
-         title = text.replace(/\(.*?\)/, '').trim()
-      } else {
-         const subMatch = text.match(
-            /(?:б\/г|с\/г|без головы|кусок|пласт|филе|нарезка|ломтики|тушка)/i
-         )
-         if (subMatch && subMatch.index && subMatch.index > 0) {
-            title = text.substring(0, subMatch.index).trim()
-            description = text.substring(subMatch.index).trim()
-         }
-      }
-
-      return {
-         title: title.toUpperCase(),
-         description: description.toUpperCase(),
-         procType,
-      }
-   }
-
-   const handleSelectCatalogItem = (item: any) => {
-      const parsed = parseProductText(item.productName || '')
-      const code =
-         item.productCode ||
-         item.code ||
-         item.plu ||
-         item.sku ||
-         item.article ||
-         (item.id ? String(item.id) : '')
-      setCurrentTag((prev) => ({
-         ...prev,
-         title: parsed.title,
-         description: parsed.description,
-         price: item.price ? String(Math.round(item.price)) : prev.price,
-         processingType: parsed.procType,
-         textureMode: 'auto',
-         productCode: code || prev.productCode || '',
-      }))
-      setIsCatalogOpen(false)
-      toast.success(`Выбран товар: ${parsed.title}`)
-   }
-
-   const filteredCatalogItems = useMemo(() => {
-      if (!catalogItems) return []
-      if (!catalogSearch.trim()) return catalogItems.slice(0, 50)
-      const q = catalogSearch.toLowerCase()
-      return catalogItems.filter(
-         (i) => i.productName && i.productName.toLowerCase().includes(q)
-      )
-   }, [catalogItems, catalogSearch])
-
    return (
       <div className='space-y-6'>
-         {/* Скрытый Canvas для генерации PNG */}
-         <canvas ref={canvasRef} className='hidden' />
-
          {/* Основной экранный интерфейс (скрывается при физической печати) */}
          <div className='space-y-6 print:hidden print-screen-content'>
-            {/* Верхний заголовок и панель быстрых действий */}
-            <div className='bg-white rounded-3xl p-6 border border-slate-200/80 shadow-xs flex flex-col lg:flex-row lg:items-center justify-between gap-4'>
-               <div className='flex items-center gap-4'>
-                  <div className='w-12 h-12 rounded-2xl bg-gradient-to-tr from-cyan-600 via-teal-600 to-indigo-600 text-white flex items-center justify-center shadow-lg shadow-teal-500/20 shrink-0'>
-                     <Tag className='w-6 h-6' />
-                  </div>
-                  <div>
-                     <div className='flex items-center gap-2'>
-                        <h2 className='text-xl sm:text-2xl font-black text-slate-900 tracking-tight font-sans'>
-                           Генератор ценников
-                        </h2>
-                        <span className='px-2.5 py-0.5 rounded-full text-xs font-black bg-teal-100 text-teal-800'>
-                           10 см ширина × 6 см высота
-                        </span>
-                     </div>
-                     <p className='text-xs sm:text-sm text-slate-500 mt-0.5'>
-                        Фирменные ценники ТопФиш (строгий размер 10 × 6 см,
-                        шрифт Onest, HD-экспорт и печать на А4)
-                     </p>
-                  </div>
+            {/* Верхний заголовок */}
+            <div className='bg-white rounded-3xl p-6 border border-slate-200/80 shadow-xs flex items-center gap-4'>
+               <div className='w-12 h-12 rounded-2xl bg-gradient-to-tr from-cyan-600 via-teal-600 to-indigo-600 text-white flex items-center justify-center shadow-lg shadow-teal-500/20 shrink-0'>
+                  <Tag className='w-6 h-6' />
                </div>
-
-               {/* Кнопки экспорта и печати */}
-               <div className='flex flex-wrap items-center gap-2.5'>
-                  {catalogItems.length > 0 && (
-                     <button
-                        type='button'
-                        onClick={() => setIsCatalogOpen(true)}
-                        className='px-3.5 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs sm:text-sm font-bold transition flex items-center gap-2 cursor-pointer'
-                     >
-                        <Search className='w-4 h-4 text-slate-500' />
-                        <span>Выбрать из прайса ({catalogItems.length})</span>
-                     </button>
-                  )}
-
-                  <button
-                     type='button'
-                     onClick={handleAddToQueue}
-                     className='px-3.5 py-2.5 rounded-xl bg-teal-50 hover:bg-teal-100 text-teal-800 border border-teal-200 text-xs sm:text-sm font-bold transition flex items-center gap-2 cursor-pointer'
-                  >
-                     <Plus className='w-4 h-4 text-teal-600' />
-                     <span>В очередь на печать</span>
-                     {printQueue.length > 0 && (
-                        <span className='px-1.5 py-0.5 rounded-full bg-teal-600 text-white text-[10px]'>
-                           {printQueue.length}
-                        </span>
-                     )}
-                  </button>
-
-                  <div className='flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-100 border border-slate-200 text-xs shadow-2xs'>
-                     <FlipHorizontal className='w-4 h-4 text-teal-700 shrink-0' />
-                     <span className='font-bold text-slate-700 hidden sm:inline'>
-                        Печать:
-                     </span>
-                     <select
-                        value={printSideMode}
-                        onChange={(e) =>
-                           setPrintSideMode(e.target.value as any)
-                        }
-                        className='bg-white font-bold text-slate-800 text-xs px-2.5 py-1 rounded-lg border border-slate-300 focus:outline-teal-500 cursor-pointer'
-                        title='Режим печати (лицевая сторона и/или оборотная с крупными кодами для весов)'
-                     >
-                        <option value='both'>Лицо + Оборот (коды весов)</option>
-                        <option value='front_only'>
-                           Только лицо (1-сторонняя)
-                        </option>
-                        <option value='back_only'>
-                           Только коды весов (оборот)
-                        </option>
-                     </select>
-                  </div>
-
-                  <button
-                     type='button'
-                     onClick={() => handleDownloadPNG(1)}
-                     className='px-3.5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs sm:text-sm font-bold transition flex items-center gap-2 shadow-xs cursor-pointer'
-                  >
-                     <Download className='w-4 h-4 text-teal-400' />
-                     <span>Скачать PNG</span>
-                  </button>
-
-                  <button
-                     type='button'
-                     onClick={() => handleExportPDF()}
-                     className='px-3.5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs sm:text-sm font-bold transition flex items-center gap-2 shadow-xs cursor-pointer'
-                     title='Скачать PDF файл со строгим размером ценников 10x6 см на листе А4'
-                  >
-                     <FileText className='w-4 h-4' />
-                     <span>PDF (10×6 см)</span>
-                  </button>
-
-                  <button
-                     type='button'
-                     onClick={() => handleExportWord()}
-                     className='px-3.5 py-2.5 rounded-xl bg-blue-700 hover:bg-blue-800 text-white text-xs sm:text-sm font-bold transition flex items-center gap-2 shadow-xs cursor-pointer'
-                     title='Скачать документ Word (.doc) со строгим размером ценников 10x6 см'
-                  >
-                     <FileDown className='w-4 h-4' />
-                     <span>Word (.doc)</span>
-                  </button>
-
-                  <button
-                     type='button'
-                     onClick={handlePrintSingle}
-                     className='px-4 py-2.5 rounded-xl bg-gradient-to-r from-teal-600 to-indigo-600 hover:from-teal-700 hover:to-indigo-700 text-white text-xs sm:text-sm font-bold transition flex items-center gap-2 shadow-md shadow-teal-600/20 cursor-pointer'
-                  >
-                     <Printer className='w-4 h-4' />
-                     <span>Печать</span>
-                  </button>
-               </div>
-            </div>
-
-            {/* Готовые пресеты образцов из референсов */}
-            <div className='bg-slate-50/80 rounded-2xl p-4 border border-slate-200/60'>
-               <div className='flex items-center gap-2 mb-2.5'>
-                  <Sparkles className='w-4 h-4 text-amber-500' />
-                  <span className='text-xs font-bold text-slate-700 uppercase tracking-wider'>
-                     Образцы ценников (соответствие вашим референсам):
-                  </span>
-               </div>
-               <div className='grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5'>
-                  {SAMPLE_PRESETS.map((preset, idx) => (
-                     <button
-                        key={idx}
-                        type='button'
-                        onClick={() => {
-                           setCurrentTag({ ...preset.tag, id: 'current' })
-                           toast.success(`Загружен пресет: ${preset.name}`)
-                        }}
-                        className='px-3 py-2 rounded-xl bg-white hover:bg-slate-100/80 border border-slate-200 text-left transition shadow-2xs hover:border-teal-400 group cursor-pointer'
-                     >
-                        <div className='flex items-center justify-between text-xs font-bold text-slate-800 group-hover:text-teal-700'>
-                           <span className='truncate'>
-                              {preset.tag.title}{' '}
-                              {preset.tag.description
-                                 ? `(${preset.tag.description})`
-                                 : ''}
-                           </span>
-                           <span className='shrink-0 text-slate-400 group-hover:text-teal-600 ml-1'>
-                              {preset.tag.price}₽
-                           </span>
-                        </div>
-                        <div className='flex items-center gap-1.5 mt-1 text-[11px] text-slate-500'>
-                           <span
-                              className='w-2 h-2 rounded-full'
-                              style={{
-                                 backgroundColor:
-                                    preset.tag.processingType === 'CUSTOM'
-                                       ? '#2b81b0'
-                                       : PROCESSING_TYPES[
-                                            preset.tag.processingType
-                                         ].colorStart,
-                              }}
-                           />
-                           <span>Вид: {preset.tag.processingType}</span>
-                           {preset.tag.weight && (
-                              <span className='text-slate-400'>
-                                 • {formatWeightText(preset.tag.weight)}
-                              </span>
-                           )}
-                        </div>
-                     </button>
-                  ))}
-               </div>
+               <h2 className='text-xl sm:text-2xl font-black text-slate-900 tracking-tight font-sans'>
+                  Генератор ценников
+               </h2>
             </div>
 
             {/* Основная сетка: Редактор параметров слева + Интерактивный Live Preview справа */}
@@ -2199,16 +1800,9 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
 
                      {/* НАЗВАНИЕ ТОВАРА */}
                      <div>
-                        <div className='flex items-center justify-between mb-1.5'>
-                           <label className='block text-xs font-bold text-slate-700 uppercase tracking-wider'>
-                              НАЗВАНИЕ (ОСНОВНОЕ):
-                           </label>
-                           {isCurrentSingleWord && (
-                              <span className='text-[11px] font-bold text-teal-600 bg-teal-50 px-2 py-0.5 rounded-md'>
-                                 ⚡ 1 слово: авто-укрупнение (как в референсе)
-                              </span>
-                           )}
-                        </div>
+                        <label className='block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5'>
+                           НАЗВАНИЕ (ОСНОВНОЕ):
+                        </label>
                         <input
                            type='text'
                            value={currentTag.title}
@@ -2703,42 +2297,37 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
                {/* ПРАВАЯ КОЛОНКА: Интерактивный Live Preview ценника (7 колонок) */}
                <div className='lg:col-span-7 space-y-5'>
                   <div className='bg-white rounded-3xl p-5 sm:p-6 border border-slate-200/80 shadow-xs space-y-4'>
-                     <div className='flex items-center justify-between border-b border-slate-100 pb-3'>
+                     <div className='flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3'>
                         <div className='flex items-center gap-2'>
                            <Eye className='w-4 h-4 text-teal-600' />
                            <h3 className='font-extrabold text-slate-900 text-base'>
-                              Живой предпросмотр (Шрифт ONEST)
+                              Живой предпросмотр
                            </h3>
                         </div>
-                        <div className='flex items-center gap-2'>
-                           <div className='inline-flex rounded-xl p-0.5 bg-slate-100 border border-slate-200'>
-                              <button
-                                 type='button'
-                                 onClick={() => setPreviewSide('front')}
-                                 className={`px-3 py-1 text-xs font-bold rounded-lg transition cursor-pointer ${
-                                    previewSide === 'front'
-                                       ? 'bg-white text-slate-900 shadow-2xs'
-                                       : 'text-slate-600 hover:text-slate-900'
-                                 }`}
-                              >
-                                 Лицевая
-                              </button>
-                              <button
-                                 type='button'
-                                 onClick={() => setPreviewSide('back')}
-                                 className={`px-3 py-1 text-xs font-bold rounded-lg transition flex items-center gap-1 cursor-pointer ${
-                                    previewSide === 'back'
-                                       ? 'bg-teal-600 text-white shadow-2xs'
-                                       : 'text-slate-600 hover:text-slate-900'
-                                 }`}
-                              >
-                                 <Hash className='w-3.5 h-3.5' />
-                                 <span>Оборот (код весов)</span>
-                              </button>
-                           </div>
-                           <span className='text-xs font-bold text-teal-700 bg-teal-50 px-2.5 py-1 rounded-lg border border-teal-200'>
-                              10 см × 6 см
-                           </span>
+                        <div className='inline-flex rounded-xl p-0.5 bg-slate-100 border border-slate-200'>
+                           <button
+                              type='button'
+                              onClick={() => setPreviewSide('front')}
+                              className={`px-3 py-1 text-xs font-bold rounded-lg transition cursor-pointer ${
+                                 previewSide === 'front'
+                                    ? 'bg-white text-slate-900 shadow-2xs'
+                                    : 'text-slate-600 hover:text-slate-900'
+                              }`}
+                           >
+                              Лицевая
+                           </button>
+                           <button
+                              type='button'
+                              onClick={() => setPreviewSide('back')}
+                              className={`px-3 py-1 text-xs font-bold rounded-lg transition flex items-center gap-1 cursor-pointer ${
+                                 previewSide === 'back'
+                                    ? 'bg-teal-600 text-white shadow-2xs'
+                                    : 'text-slate-600 hover:text-slate-900'
+                              }`}
+                           >
+                              <Hash className='w-3.5 h-3.5' />
+                              <span>Оборот (код весов)</span>
+                           </button>
                         </div>
                      </div>
 
@@ -3006,71 +2595,24 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
                      </div>
 
                      {/* Кнопки действий под карточкой предпросмотра */}
-                     <div className='grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 pt-2'>
-                        <button
-                           type='button'
-                           onClick={() => handleDownloadPNG(1)}
-                           className='px-2.5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-xs'
-                        >
-                           <Download className='w-3.5 h-3.5 text-teal-400' />
-                           <span>PNG (1x)</span>
-                        </button>
-
-                        <button
-                           type='button'
-                           onClick={() => handleDownloadPNG(2)}
-                           className='px-2.5 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-xs'
-                           title='Экспорт в разрешении 2048x1228 для печати'
-                        >
-                           <Sparkles className='w-3.5 h-3.5' />
-                           <span>Ultra HD</span>
-                        </button>
-
-                        <button
-                           type='button'
-                           onClick={handleCopyImage}
-                           className='px-2.5 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer'
-                        >
-                           {isCopied ? (
-                              <>
-                                 <Check className='w-3.5 h-3.5 text-emerald-600' />
-                                 <span>Готово!</span>
-                              </>
-                           ) : (
-                              <>
-                                 <Copy className='w-3.5 h-3.5 text-slate-600' />
-                                 <span>В буфер</span>
-                              </>
-                           )}
-                        </button>
-
+                     <div className='grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2'>
                         <button
                            type='button'
                            onClick={handleAddToQueue}
-                           className='px-2.5 py-2.5 rounded-xl bg-teal-50 hover:bg-teal-100 text-teal-800 border border-teal-200 text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer'
+                           className='px-5 py-3.5 rounded-xl bg-teal-50 hover:bg-teal-100 text-teal-800 border border-teal-200 text-sm sm:text-base font-bold transition flex items-center justify-center gap-2 cursor-pointer shadow-xs'
                         >
-                           <Plus className='w-3.5 h-3.5 text-teal-600' />
+                           <Plus className='w-5 h-5 text-teal-600' />
                            <span>В очередь</span>
                         </button>
 
                         <button
                            type='button'
                            onClick={() => handleExportPDF([currentTag])}
-                           className='px-2.5 py-2.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-800 border border-rose-200 text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer'
+                           className='px-5 py-3.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-800 border border-rose-200 text-sm sm:text-base font-bold transition flex items-center justify-center gap-2 cursor-pointer shadow-xs'
                            title='Скачать данный ценник в PDF со строгим размером 10x6 см'
                         >
-                           <FileText className='w-3.5 h-3.5 text-rose-600' />
+                           <FileText className='w-5 h-5 text-rose-600' />
                            <span>PDF 10×6</span>
-                        </button>
-
-                        <button
-                           type='button'
-                           onClick={() => handleExportWord([currentTag])}
-                           className='px-2.5 py-2.5 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200 text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer'
-                           title='Скачать данный ценник в документ Word (.doc) со строгим размером 10x6 см'
-                        >
-                           <FileDown className='w-3.5 h-3.5 text-blue-600' />
-                           <span>Word .doc</span>
                         </button>
                      </div>
                   </div>
@@ -3486,120 +3028,6 @@ export default function PriceTagsTab({ catalogItems = [] }: PriceTagsTabProps) {
                   </div>
                )}
             </div>
-
-            {/* МОДАЛЬНОЕ ОКНО ВЫБОРА ТОВАРА ИЗ ПЛАНА / КАТАЛОГА */}
-            {isCatalogOpen && (
-               <div className='fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4'>
-                  <div className='bg-white rounded-3xl max-w-2xl w-full max-h-[85vh] shadow-2xl flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150'>
-                     <div className='p-5 border-b border-slate-100 flex items-center justify-between'>
-                        <div className='flex items-center gap-3'>
-                           <div className='w-10 h-10 rounded-xl bg-teal-50 text-teal-600 flex items-center justify-center font-bold'>
-                              <Search className='w-5 h-5' />
-                           </div>
-                           <div>
-                              <h3 className='font-extrabold text-slate-900 text-base'>
-                                 Выбор товара из производственного плана
-                              </h3>
-                              <p className='text-xs text-slate-500'>
-                                 Кликните по товару, чтобы автоматически
-                                 подставить его название, цену и вид обработки
-                              </p>
-                           </div>
-                        </div>
-                        <button
-                           type='button'
-                           onClick={() => setIsCatalogOpen(false)}
-                           className='w-8 h-8 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-500 flex items-center justify-center transition cursor-pointer'
-                        >
-                           <X className='w-4 h-4' />
-                        </button>
-                     </div>
-
-                     <div className='p-4 border-b border-slate-100 bg-slate-50/50'>
-                        <div className='relative'>
-                           <Search className='w-4 h-4 absolute left-3 top-3 text-slate-400' />
-                           <input
-                              type='text'
-                              value={catalogSearch}
-                              onChange={(e) => setCatalogSearch(e.target.value)}
-                              placeholder='Поиск по названию рыбы (сиг, скумбрия, терпуг, колбаса...)'
-                              className='w-full pl-9 pr-4 py-2 rounded-xl border border-slate-200 bg-white text-sm font-medium focus:outline-none focus:ring-2 focus:ring-teal-500'
-                              autoFocus
-                           />
-                        </div>
-                     </div>
-
-                     <div className='p-4 overflow-y-auto space-y-2 flex-1 max-h-[50vh]'>
-                        {filteredCatalogItems.length === 0 ? (
-                           <div className='py-8 text-center text-slate-400 text-sm'>
-                              Товары не найдены
-                           </div>
-                        ) : (
-                           filteredCatalogItems.map((item, idx) => {
-                              const parsed = parseProductText(
-                                 item.productName || ''
-                              )
-                              return (
-                                 <button
-                                    key={item.id || idx}
-                                    type='button'
-                                    onClick={() =>
-                                       handleSelectCatalogItem(item)
-                                    }
-                                    className='w-full p-3 rounded-2xl border border-slate-200/80 hover:border-teal-400 hover:bg-teal-50/50 text-left transition flex items-center justify-between group cursor-pointer'
-                                 >
-                                    <div>
-                                       <div
-                                          className='font-bold text-slate-900 text-sm group-hover:text-teal-800'
-                                          style={{
-                                             fontFamily: '"Onest", sans-serif',
-                                          }}
-                                       >
-                                          {parsed.title}{' '}
-                                          {parsed.description
-                                             ? `(${parsed.description})`
-                                             : ''}
-                                       </div>
-                                       <div className='flex items-center gap-2 mt-0.5 text-xs text-slate-500'>
-                                          <span className='font-semibold text-teal-700'>
-                                             Вид: {parsed.procType}
-                                          </span>
-                                          {item.category && (
-                                             <span>• {item.category}</span>
-                                          )}
-                                       </div>
-                                    </div>
-
-                                    <div className='text-right shrink-0'>
-                                       <span
-                                          className='font-extrabold text-slate-900 text-sm group-hover:text-teal-700'
-                                          style={{
-                                             fontFamily: '"Onest", sans-serif',
-                                          }}
-                                       >
-                                          {item.price
-                                             ? `${Math.round(item.price)} ₽`
-                                             : '—'}
-                                       </span>
-                                    </div>
-                                 </button>
-                              )
-                           })
-                        )}
-                     </div>
-
-                     <div className='p-4 border-t border-slate-100 bg-slate-50 flex justify-end'>
-                        <button
-                           type='button'
-                           onClick={() => setIsCatalogOpen(false)}
-                           className='px-4 py-2 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-800 text-xs font-bold transition cursor-pointer'
-                        >
-                           Закрыть
-                        </button>
-                     </div>
-                  </div>
-               </div>
-            )}
          </div>
 
          {/* ПЕЧАТНАЯ ВЕРСТКА ДЛЯ СЕТКИ НА А4 (Отображается только в окне печати @media print, строгий формат 10см x 6см) */}
