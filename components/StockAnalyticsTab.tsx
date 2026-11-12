@@ -200,7 +200,7 @@ export default function StockAnalyticsTab() {
     stagnant: number;
     newItems: number;
   } | null>(null);
-  const [sortBy, setSortBy] = useState('name_asc');
+  const [sortBy, setSortBy] = useState('abc');
 
   const statusBadgeColorMap: Record<string, string> = {
     orange: 'bg-orange-50 text-orange-700 border-orange-200',
