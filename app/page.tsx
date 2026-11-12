@@ -1154,6 +1154,9 @@ export default function DashboardPage() {
                         weekId={displayWeek?.id || ''}
                         weekStatus={displayWeek?.status || 'PLANNING'}
                         weekNumber={displayWeek?.weekNumber || 1}
+                        weekYear={displayWeek?.year}
+                        weekStartDate={displayWeek?.startDate}
+                        weekEndDate={displayWeek?.endDate}
                         items={items}
                         currentFilter={currentFilter}
                         autoSyncPrice={autoSyncPrice}

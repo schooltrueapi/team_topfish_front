@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react'
 import toast from 'react-hot-toast'
+import api from '@/lib/api'
 import { useAuth } from '@/context/AuthContext'
 import {
    Tag,
@@ -20,9 +21,13 @@ import {
    MousePointerClick,
    RotateCcw,
    FileText,
-   FileDown,
    Sun,
    Hash,
+   FileSpreadsheet,
+   Search,
+   RotateCw,
+   Sparkles,
+   X,
 } from 'lucide-react'
 
 export interface PriceTagItem {
@@ -63,6 +68,43 @@ export interface PriceTagItem {
    weightBrightness?: number // яркость/контрастность веса (20..100%, по умолчанию 90)
    badgeScale?: number // масштаб шильдика обработки (70..140%, default 100)
    logoScale?: number // масштаб логотипа (50..150%, default 100)
+}
+
+export interface BatchPriceTagItem extends PriceTagItem {
+   rowNumber?: number
+   rawName: string
+   rawPrice: number
+   packGrams?: number | null
+   priceAuto: string
+   priceDiv10: string
+   priceRaw: string
+   priceManuallyEdited?: boolean
+   approved: boolean
+}
+
+export type PriceConversionMode = 'auto' | 'div10' | 'raw'
+
+function computeBatchDisplayPrice(
+   rawPrice: number,
+   priceAuto: string,
+   priceDiv10: string,
+   priceRaw: string,
+   mode: PriceConversionMode
+): string {
+   const baseStr =
+      mode === 'auto' ? priceAuto : mode === 'div10' ? priceDiv10 : priceRaw
+   const num = parseFloat(baseStr)
+   if (!Number.isFinite(num)) return String(rawPrice || 0)
+   const val = Math.round(num * 10) / 10
+   return Number.isInteger(val) ? String(val) : String(val)
+}
+
+function computeBatchDisplayWeight(
+   packGrams: number | null | undefined,
+   mode: PriceConversionMode
+): string {
+   if (mode === 'div10') return '100г'
+   return packGrams ? `${packGrams}г` : '100г'
 }
 
 export interface ProcessingConfig {
@@ -1117,22 +1159,321 @@ export async function generatePriceTagsWord(
    return new Blob([mhtml], { type: 'application/msword;charset=utf-8' })
 }
 
+function PriceTagMiniPreview({
+   tag,
+   side = 'front',
+}: {
+   tag: PriceTagItem
+   side?: 'front' | 'back'
+}) {
+   const proc =
+      tag.processingType === 'CUSTOM'
+         ? {
+              badgeText: tag.customProcessingText || 'ТОП',
+              colorStart: tag.customColorStart || '#2b81b0',
+              colorEnd: tag.customColorEnd || '#a9e1ff',
+           }
+         : PROCESSING_TYPES[tag.processingType]
+
+   const tagTexture =
+      tag.textureMode === 'custom' && tag.customTextureUrl
+         ? tag.customTextureUrl
+         : tag.textureMode === 'solid' || tag.textureMode === 'solid_blue'
+           ? ''
+           : tag.textureMode === 'auto'
+             ? tag.processingType === 'CUSTOM'
+                ? '/textures/xk.jpg'
+                : PROCESSING_TYPES[tag.processingType].textureUrl
+             : `/textures/${tag.textureMode}.jpg`
+
+   const cleanWeight = formatWeightText(tag.weight)
+
+   if (side === 'back') {
+      const code = (tag.productCode || '').trim() || '—'
+      return (
+         <div
+            className='relative w-full aspect-[10/6] select-none overflow-hidden bg-white border-2 border-dashed border-slate-300 p-[3.5%] flex flex-col justify-between'
+            style={{
+               containerType: 'inline-size',
+               fontFamily: '"Onest", sans-serif',
+            }}
+         >
+            <div className='flex items-center justify-between border-b border-slate-200 pb-[2%]'>
+               <div
+                  className='font-bold text-slate-800 uppercase tracking-tight truncate max-w-[75%]'
+                  style={{ fontSize: '4.2cqi' }}
+               >
+                  <span>{tag.title || 'НАЗВАНИЕ'}</span>
+                  {tag.description && (
+                     <span className='text-slate-500 font-semibold ml-1'>
+                        ({tag.description})
+                     </span>
+                  )}
+               </div>
+               <div
+                  className='font-black text-slate-700 uppercase shrink-0'
+                  style={{ fontSize: '4.2cqi' }}
+               >
+                  {proc.badgeText}
+               </div>
+            </div>
+
+            <div className='flex flex-col items-center justify-center text-center'>
+               <span
+                  className='font-bold uppercase tracking-widest text-slate-400'
+                  style={{ fontSize: '3.2cqi' }}
+               >
+                  КОД ДЛЯ ВЕСОВ / PLU
+               </span>
+               <span
+                  className='font-black text-slate-900 tracking-wider leading-none'
+                  style={{
+                     fontSize:
+                        code.length <= 4
+                           ? '21cqi'
+                           : code.length <= 6
+                             ? '16cqi'
+                             : '12cqi',
+                  }}
+               >
+                  {code}
+               </span>
+            </div>
+
+            <div className='flex items-center justify-between border-t border-slate-200 pt-[2%]'>
+               <span
+                  className='font-extrabold text-slate-400 tracking-wider uppercase'
+                  style={{ fontSize: '3.4cqi' }}
+               >
+                  ТОПФИШ
+               </span>
+               <div
+                  className='font-bold text-slate-800'
+                  style={{ fontSize: '3.8cqi' }}
+               >
+                  <span>
+                     {tag.price} {tag.currency || '₽'}
+                  </span>
+                  {cleanWeight && (
+                     <span className='text-slate-500 font-semibold ml-1'>
+                        / {cleanWeight}
+                     </span>
+                  )}
+               </div>
+            </div>
+         </div>
+      )
+   }
+
+   const itemLayout = computeDynamicTitleLayout(tag.title, tag.description)
+   const itemTitleFontSize = tag.titleFontSize || itemLayout.fontSize
+   const itemPriceFontSize =
+      tag.priceFontSize || computeDynamicPriceFontSize(tag.price)
+   const itemWeightFontSize =
+      tag.weightFontSize || TOPFISH_DEFAULTS.weightFontSize
+   const itemTitleOffsetX =
+      tag.titleOffsetX !== undefined
+         ? tag.titleOffsetX
+         : TOPFISH_DEFAULTS.titleOffsetX
+   const itemTitleOffsetY =
+      tag.titleOffsetY !== undefined
+         ? tag.titleOffsetY
+         : TOPFISH_DEFAULTS.titleOffsetY
+   const itemPriceOffsetX =
+      tag.priceOffsetX !== undefined
+         ? tag.priceOffsetX
+         : TOPFISH_DEFAULTS.priceOffsetX
+   const itemPriceOffsetY =
+      tag.priceOffsetY !== undefined
+         ? tag.priceOffsetY
+         : TOPFISH_DEFAULTS.priceOffsetY
+   const itemWeightOffsetX =
+      tag.weightOffsetX !== undefined
+         ? tag.weightOffsetX
+         : TOPFISH_DEFAULTS.weightOffsetX
+   const itemWeightOffsetY =
+      tag.weightOffsetY !== undefined
+         ? tag.weightOffsetY
+         : TOPFISH_DEFAULTS.weightOffsetY
+   const itemWeightBrightness =
+      tag.weightBrightness !== undefined
+         ? tag.weightBrightness
+         : TOPFISH_DEFAULTS.weightBrightness
+   const itemBadgeScale = tag.badgeScale || TOPFISH_DEFAULTS.badgeScale
+   const itemLogoScale = tag.logoScale || TOPFISH_DEFAULTS.logoScale
+   const weightStyles = getWeightColors(itemWeightBrightness, false)
+
+   return (
+      <div
+         className='relative w-full aspect-[10/6] overflow-hidden select-none'
+         style={{
+            containerType: 'inline-size',
+            backgroundColor: '#171d41',
+            backgroundImage: tagTexture ? `url(${tagTexture})` : 'none',
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+         }}
+      >
+         <div
+            className='absolute left-[4.8%] max-w-[90%] text-white'
+            style={{
+               top: itemLayout.dynamicTitleTopPercent + '%',
+               fontFamily: '"Onest", sans-serif',
+               fontStyle: tag.isItalic ? 'italic' : 'normal',
+               fontWeight: 700,
+               textTransform: 'uppercase',
+               lineHeight: 1.08,
+               fontSize: pxToCqi(itemTitleFontSize),
+               transform: `translate(${pxToCqi(itemTitleOffsetX)}, ${pxToCqi(itemTitleOffsetY)})`,
+               padding: '0.4% 0.8%',
+               maxWidth: '90.4%',
+               wordBreak: 'normal',
+               overflowWrap: 'normal',
+            }}
+         >
+            <div className='tracking-tight'>
+               {itemLayout.lines.map((lineTokens, lineIdx) => (
+                  <div key={`mp-l-${lineIdx}`} className='whitespace-nowrap'>
+                     {lineTokens.map((token, tIdx) => (
+                        <span key={`mp-t-${tIdx}`}>
+                           {tIdx > 0 ? ' ' : ''}
+                           {token.prefix || ''}
+                           <span
+                              style={{
+                                 textDecoration:
+                                    token.isDesc && tag.underlineDescription
+                                       ? 'underline'
+                                       : 'none',
+                                 textUnderlineOffset: '0.08em',
+                                 textDecorationThickness: '0.05em',
+                              }}
+                           >
+                              {token.text}
+                           </span>
+                           {token.suffix || ''}
+                        </span>
+                     ))}
+                  </div>
+               ))}
+            </div>
+         </div>
+
+         <div
+            className='absolute inset-x-0 bottom-0 top-[12%] flex items-center justify-end pointer-events-none'
+            style={{
+               paddingRight: cleanWeight ? '1.4%' : '3.5%',
+            }}
+         >
+            <div
+               className='flex items-start justify-end'
+               style={{
+                  transform: `translate(${pxToCqi(itemPriceOffsetX)}, ${pxToCqi(itemPriceOffsetY)})`,
+               }}
+            >
+               <div
+                  className='flex items-baseline text-white font-black'
+                  style={{
+                     fontFamily: '"Onest", sans-serif',
+                     fontSize: pxToCqi(itemPriceFontSize),
+                     lineHeight: 1,
+                  }}
+               >
+                  <span>{tag.price || '0'}</span>
+                  <span style={{ marginLeft: '0.14em' }}>
+                     {tag.currency || '₽'}
+                  </span>
+               </div>
+
+               {cleanWeight && (
+                  <div
+                     className='ml-1 -mt-0.5 rounded-full italic tracking-wide flex items-center justify-center shrink-0'
+                     style={{
+                        fontSize: pxToCqi(itemWeightFontSize),
+                        lineHeight: 1.1,
+                        fontFamily: '"Onest", sans-serif',
+                        fontWeight: weightStyles.fontWeight,
+                        color: weightStyles.color,
+                        border: `1px solid ${weightStyles.borderColor}`,
+                        padding: `${pxToCqi(Math.round(itemWeightFontSize * 0.18))} ${pxToCqi(Math.round(itemWeightFontSize * 0.52))}`,
+                        transform: `translate(${pxToCqi(itemWeightOffsetX)}, ${pxToCqi(itemWeightOffsetY)})`,
+                     }}
+                  >
+                     {cleanWeight}
+                  </div>
+               )}
+            </div>
+         </div>
+
+         <div
+            className='absolute left-0 bottom-0 flex items-center justify-center font-black origin-bottom-left'
+            style={{
+               height: '24%',
+               minWidth: '26%',
+               paddingLeft: '3.5%',
+               paddingRight: '3.5%',
+               borderTopRightRadius: '22px',
+               background: `linear-gradient(to right, ${proc.colorStart}, ${proc.colorEnd})`,
+               color: '#151b32',
+               fontSize: pxToCqi(Math.round(82 * (itemBadgeScale / 100))),
+               fontFamily: '"Onest", sans-serif',
+               lineHeight: 1,
+               transform: `scale(${itemBadgeScale / 100})`,
+               transformOrigin: 'bottom left',
+            }}
+         >
+            {proc.badgeText}
+         </div>
+
+         {tag.showLogo && (
+            <div
+               className='absolute right-[3.6%] bottom-[4.8%] w-[23%] max-w-[240px] pointer-events-none origin-bottom-right'
+               style={{
+                  transform: `scale(${itemLogoScale / 100})`,
+                  transformOrigin: 'bottom right',
+               }}
+            >
+               <img
+                  src='/Logo%20price.png'
+                  alt='ТопФиш'
+                  className='w-full h-auto object-contain drop-shadow-sm'
+               />
+            </div>
+         )}
+      </div>
+   )
+}
+
 export default function PriceTagsTab() {
    const { user } = useAuth()
    const queueStorageKey = user?.id
       ? `topfish_price_tags_queue_${user.id}`
       : 'topfish_price_tags_queue'
+   const batchStorageKey = user?.id
+      ? `topfish_price_tags_batch_${user.id}`
+      : 'topfish_price_tags_batch'
 
+   const [activeMode, setActiveMode] = useState<'excel' | 'manual'>('manual')
    const [currentTag, setCurrentTag] = useState<PriceTagItem>(DEFAULT_TAG)
    const [printQueue, setPrintQueue] = useState<PriceTagItem[]>([])
    const [restoredQueueKey, setRestoredQueueKey] = useState<string | null>(null)
-   const [printLayoutMode, setPrintLayoutMode] = useState<'color' | 'eco'>(
-      'color'
-   )
    const [previewSide, setPreviewSide] = useState<'front' | 'back'>('front')
    const [printSideMode, setPrintSideMode] = useState<
       'both' | 'front_only' | 'back_only'
    >('both')
+
+   // Состояние режима автогенерации из Excel
+   const [batchTags, setBatchTags] = useState<BatchPriceTagItem[]>([])
+   const [batchFileName, setBatchFileName] = useState<string>('')
+   const [restoredBatchKey, setRestoredBatchKey] = useState<string | null>(null)
+   const [conversionMode, setConversionMode] =
+      useState<PriceConversionMode>('auto')
+   const [batchFilter, setBatchFilter] = useState<
+      'all' | 'pending' | 'approved'
+   >('all')
+   const [batchSearch, setBatchSearch] = useState<string>('')
+   const [isUploadingExcel, setIsUploadingExcel] = useState<boolean>(false)
+   const [flippedCards, setFlippedCards] = useState<Record<string, boolean>>({})
+   const excelInputRef = useRef<HTMLInputElement | null>(null)
 
    // Восстановление очереди печати из localStorage при загрузке / переключении вкладки
    useEffect(() => {
@@ -1190,6 +1531,58 @@ export default function PriceTagsTab() {
          )
       }
    }, [printQueue, queueStorageKey, restoredQueueKey])
+
+   // Восстановление пакетной генерации из Excel из localStorage
+   useEffect(() => {
+      if (typeof window === 'undefined') return
+      try {
+         const raw = localStorage.getItem(batchStorageKey)
+         if (raw) {
+            const parsed = JSON.parse(raw)
+            if (parsed && Array.isArray(parsed.items)) {
+               setBatchTags(parsed.items)
+               setBatchFileName(parsed.fileName || '')
+               if (parsed.conversionMode) setConversionMode(parsed.conversionMode)
+            }
+         }
+      } catch (err) {
+         console.error('Ошибка восстановления пакета ценников:', err)
+      } finally {
+         setRestoredBatchKey(batchStorageKey)
+      }
+   }, [batchStorageKey])
+
+   // Автосохранение пакетной генерации из Excel в localStorage
+   useEffect(() => {
+      if (
+         typeof window === 'undefined' ||
+         restoredBatchKey !== batchStorageKey
+      ) {
+         return
+      }
+      try {
+         if (batchTags.length === 0) {
+            localStorage.removeItem(batchStorageKey)
+         } else {
+            localStorage.setItem(
+               batchStorageKey,
+               JSON.stringify({
+                  fileName: batchFileName,
+                  conversionMode,
+                  items: batchTags,
+               })
+            )
+         }
+      } catch (err) {
+         console.error('Ошибка сохранения пакета ценников:', err)
+      }
+   }, [
+      batchTags,
+      batchFileName,
+      conversionMode,
+      batchStorageKey,
+      restoredBatchKey,
+   ])
 
    // Эффективный лейаут названия с оптическим вертикальным балансом
    const effectiveTitleLayout = useMemo(() => {
@@ -1668,54 +2061,6 @@ export default function PriceTagsTab() {
       }
    }
 
-   // Экспорт в документ Word (.doc) со строгим размером 10см х 6см
-   const handleExportWord = async (tagsToExport?: PriceTagItem[]) => {
-      const targetTags =
-         tagsToExport && tagsToExport.length > 0
-            ? tagsToExport
-            : printQueue.length > 0
-              ? printQueue
-              : [currentTag]
-
-      const toastId = toast.loading(
-         `Формирование Word (${targetTags.length} ценн., режим: ${
-            printSideMode === 'both'
-               ? '2-сторонний'
-               : printSideMode === 'back_only'
-                 ? 'только коды'
-                 : 'только лицо'
-         })...`
-      )
-      try {
-         const blob = await generatePriceTagsWord(
-            targetTags,
-            drawTagToCanvas,
-            drawTagBackToCanvas,
-            printSideMode
-         )
-         const url = URL.createObjectURL(blob)
-         const a = document.createElement('a')
-         a.href = url
-         a.download = `TopFish_Ценники_10x6см_${new Date().toISOString().slice(0, 10)}.doc`
-         document.body.appendChild(a)
-         a.click()
-         document.body.removeChild(a)
-         URL.revokeObjectURL(url)
-         toast.dismiss(toastId)
-         toast.success(
-            printSideMode === 'both'
-               ? 'Word скачан! (2-сторонняя печать: лицо + зеркальный оборот с кодами)'
-               : printSideMode === 'back_only'
-                 ? 'Word скачан! (Только оборотные коды для весов)'
-                 : 'Word скачан! (Размер 10×6 см для проверки и печати)'
-         )
-      } catch (err) {
-         console.error(err)
-         toast.dismiss(toastId)
-         toast.error('Не удалось создать документ Word')
-      }
-   }
-
    // Добавление текущего ценника в очередь печати
    const handleAddToQueue = () => {
       const newItem: PriceTagItem = {
@@ -1764,22 +2109,759 @@ export default function PriceTagsTab() {
       reader.readAsDataURL(file)
    }
 
+   // === ОБРАБОТЧИКИ АВТОГЕНЕРАЦИИ ПО EXCEL ===
+   const handleExcelFileUpload = async (file: File) => {
+      const ext = file.name.split('.').pop()?.toLowerCase()
+      if (!ext || !['xlsx', 'xls', 'csv'].includes(ext)) {
+         toast.error('Поддерживаются только файлы Excel (.xlsx, .xls, .csv)')
+         return
+      }
+
+      const toastId = toast.loading(`Читаем «${file.name}»...`)
+      try {
+         setIsUploadingExcel(true)
+         const formData = new FormData()
+         formData.append('file', file)
+         formData.append('fileName', file.name)
+
+         const res = await api.post('/api/price-tags/parse-excel', formData, {
+            headers: { 'Content-Type': 'multipart/form-data' },
+         })
+
+         const parsedItems = Array.isArray(res.data?.items) ? res.data.items : []
+         const now = Date.now()
+         const mapped: BatchPriceTagItem[] = parsedItems.map(
+            (item: any, idx: number) => {
+               const packGrams = item.packGrams ?? null
+               const rawPrice = Number(item.rawPrice) || 0
+               const smartAuto = packGrams
+                  ? String(item.priceRaw ?? rawPrice)
+                  : String(item.priceAuto ?? item.price ?? '0')
+               const div10 = String(item.priceDiv10 ?? item.price ?? '0')
+               const rawStr = String(item.priceRaw ?? rawPrice)
+               return {
+                  id: `excel_${now}_${idx}`,
+                  rowNumber: item.rowNumber,
+                  rawName: item.rawName || item.title || '',
+                  title: String(item.title || '').toUpperCase(),
+                  description: String(item.description || '').toUpperCase(),
+                  weight: computeBatchDisplayWeight(packGrams, conversionMode),
+                  rawPrice,
+                  packGrams,
+                  priceAuto: smartAuto,
+                  priceDiv10: div10,
+                  priceRaw: rawStr,
+                  price: computeBatchDisplayPrice(
+                     rawPrice,
+                     smartAuto,
+                     div10,
+                     rawStr,
+                     conversionMode
+                  ),
+                  currency: '₽',
+                  processingType: (['XK', 'GK', 'SS', 'VYAL'].includes(
+                     item.processingType
+                  )
+                     ? item.processingType
+                     : 'XK') as 'XK' | 'GK' | 'SS' | 'VYAL',
+                  textureMode: 'auto',
+                  isItalic: true,
+                  underlineDescription: true,
+                  showLogo: true,
+                  productCode: String(item.productCode || ''),
+                  titleFontSize: 0,
+                  titleOffsetY: TOPFISH_DEFAULTS.titleOffsetY,
+                  titleOffsetX: TOPFISH_DEFAULTS.titleOffsetX,
+                  priceFontSize: 0,
+                  priceOffsetY: TOPFISH_DEFAULTS.priceOffsetY,
+                  priceOffsetX: TOPFISH_DEFAULTS.priceOffsetX,
+                  weightFontSize: TOPFISH_DEFAULTS.weightFontSize,
+                  weightOffsetY: TOPFISH_DEFAULTS.weightOffsetY,
+                  weightOffsetX: TOPFISH_DEFAULTS.weightOffsetX,
+                  weightBrightness: TOPFISH_DEFAULTS.weightBrightness,
+                  badgeScale: TOPFISH_DEFAULTS.badgeScale,
+                  logoScale: TOPFISH_DEFAULTS.logoScale,
+                  priceManuallyEdited: false,
+                  approved: false,
+               }
+            }
+         )
+
+         setBatchTags(mapped)
+         setBatchFileName(file.name)
+         setBatchFilter('all')
+         setBatchSearch('')
+         setFlippedCards({})
+         setActiveMode('excel')
+         toast.dismiss(toastId)
+         toast.success(
+            `Сформировано ${mapped.length} ценников из файла «${file.name}»`
+         )
+      } catch (err: any) {
+         console.error('Ошибка загрузки Excel:', err)
+         toast.dismiss(toastId)
+         toast.error(
+            err?.response?.data?.error || 'Не удалось обработать Excel файл'
+         )
+      } finally {
+         setIsUploadingExcel(false)
+         if (excelInputRef.current) excelInputRef.current.value = ''
+      }
+   }
+
+   const handleConversionModeChange = (nextMode: PriceConversionMode) => {
+      setConversionMode(nextMode)
+      setBatchTags((prev) =>
+         prev.map((tag) => {
+            const smartAuto = tag.packGrams
+               ? String(tag.priceRaw ?? tag.rawPrice)
+               : String(tag.priceDiv10 ?? tag.priceAuto)
+            return {
+               ...tag,
+               weight: computeBatchDisplayWeight(tag.packGrams, nextMode),
+               priceManuallyEdited: false,
+               priceAuto: smartAuto,
+               price: computeBatchDisplayPrice(
+                  tag.rawPrice,
+                  smartAuto,
+                  tag.priceDiv10,
+                  tag.priceRaw,
+                  nextMode
+               ),
+            }
+         })
+      )
+   }
+
+   const updateBatchTag = (id: string, patch: Partial<BatchPriceTagItem>) => {
+      setBatchTags((prev) =>
+         prev.map((tag) => (tag.id === id ? { ...tag, ...patch } : tag))
+      )
+   }
+
+   const removeBatchTag = (id: string) => {
+      setBatchTags((prev) => prev.filter((t) => t.id !== id))
+   }
+
+   const batchApprovedCount = useMemo(
+      () => batchTags.filter((t) => t.approved).length,
+      [batchTags]
+   )
+
+   const filteredBatchTags = useMemo(() => {
+      const q = batchSearch.trim().toLowerCase()
+      return batchTags.filter((t) => {
+         if (batchFilter === 'approved' && !t.approved) return false
+         if (batchFilter === 'pending' && t.approved) return false
+         if (q) {
+            const haystack =
+               `${t.title} ${t.description} ${t.rawName} ${t.productCode || ''}`.toLowerCase()
+            if (!haystack.includes(q)) return false
+         }
+         return true
+      })
+   }, [batchTags, batchFilter, batchSearch])
+
+   const handleApproveFiltered = (approvedValue: boolean) => {
+      const visibleIds = new Set(filteredBatchTags.map((t) => t.id))
+      setBatchTags((prev) =>
+         prev.map((t) =>
+            visibleIds.has(t.id) ? { ...t, approved: approvedValue } : t
+         )
+      )
+      toast.success(
+         approvedValue
+            ? `Утверждено позиций: ${visibleIds.size}`
+            : `Снято утверждение с ${visibleIds.size} позиций`
+      )
+   }
+
+   const handleDownloadBatchPdf = async (onlyApproved: boolean) => {
+      const targets = onlyApproved
+         ? batchTags.filter((t) => t.approved)
+         : batchTags
+      if (targets.length === 0) {
+         toast.error(
+            onlyApproved
+               ? 'Нет утверждённых ценников! Утвердите нужные позиции или нажмите «Утвердить все».'
+               : 'Список ценников пуст'
+         )
+         return
+      }
+      await handleExportPDF(targets)
+   }
+
+   const handleSendBatchToQueue = (onlyApproved: boolean) => {
+      const targets = onlyApproved
+         ? batchTags.filter((t) => t.approved)
+         : batchTags
+      if (targets.length === 0) {
+         toast.error('Нет утверждённых ценников для добавления в очередь')
+         return
+      }
+      const cloned: PriceTagItem[] = targets.map((t, i) => ({
+         ...t,
+         id: `tag_${Date.now()}_${i}`,
+      }))
+      setPrintQueue((prev) => [...prev, ...cloned])
+      toast.success(`Добавлено в очередь печати: ${cloned.length} шт.`)
+   }
+
+   const handleOpenBatchItemInEditor = (tag: BatchPriceTagItem) => {
+      setCurrentTag({ ...tag })
+      setActiveMode('manual')
+      toast.success(`«${tag.title}» открыт в детальном редакторе`)
+   }
+
    return (
-      <div className='space-y-6'>
+      <div className='space-y-4'>
          {/* Основной экранный интерфейс (скрывается при физической печати) */}
-         <div className='space-y-6 print:hidden print-screen-content'>
-            {/* Верхний заголовок */}
-            <div className='bg-white rounded-3xl p-6 border border-slate-200/80 shadow-xs flex items-center gap-4'>
-               <div className='w-12 h-12 rounded-2xl bg-gradient-to-tr from-cyan-600 via-teal-600 to-indigo-600 text-white flex items-center justify-center shadow-lg shadow-teal-500/20 shrink-0'>
-                  <Tag className='w-6 h-6' />
+         <div className='space-y-4 print:hidden print-screen-content'>
+            {/* Верхний компактный заголовок с переключением режимов */}
+            <div className='bg-white rounded-2xl px-4 py-3 border border-slate-200/80 shadow-xs flex flex-wrap items-center justify-between gap-3'>
+               <div className='flex items-center gap-3'>
+                  <div className='w-9 h-9 rounded-xl bg-gradient-to-tr from-cyan-600 via-teal-600 to-indigo-600 text-white flex items-center justify-center shadow-sm shadow-teal-500/20 shrink-0'>
+                     <Tag className='w-4 h-4' />
+                  </div>
+                  <div>
+                     <h2 className='text-base sm:text-lg font-black text-slate-900 tracking-tight font-sans leading-tight'>
+                        Генератор ценников
+                     </h2>
+                     <p className='text-[11px] text-slate-400 leading-tight'>
+                        10×6 см • А4 (8 шт) • Двусторонний PDF с кодами весов
+                     </p>
+                  </div>
                </div>
-               <h2 className='text-xl sm:text-2xl font-black text-slate-900 tracking-tight font-sans'>
-                  Генератор ценников
-               </h2>
+
+               <div className='inline-flex items-center rounded-xl p-1 bg-slate-100 border border-slate-200'>
+                  <button
+                     type='button'
+                     onClick={() => setActiveMode('manual')}
+                     className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                        activeMode === 'manual'
+                           ? 'bg-slate-900 text-white shadow-xs'
+                           : 'text-slate-600 hover:text-slate-900'
+                     }`}
+                  >
+                     <Sliders className='w-3.5 h-3.5' />
+                     <span>Ручной редактор</span>
+                     {printQueue.length > 0 && (
+                        <span
+                           className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
+                              activeMode === 'manual'
+                                 ? 'bg-teal-500 text-white'
+                                 : 'bg-slate-200 text-slate-700'
+                           }`}
+                        >
+                           {printQueue.length}
+                        </span>
+                     )}
+                  </button>
+                  <button
+                     type='button'
+                     onClick={() => setActiveMode('excel')}
+                     className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                        activeMode === 'excel'
+                           ? 'bg-slate-900 text-white shadow-xs'
+                           : 'text-slate-600 hover:text-slate-900'
+                     }`}
+                  >
+                     <FileSpreadsheet className='w-3.5 h-3.5' />
+                     <span>Авто по Excel</span>
+                     {batchTags.length > 0 && (
+                        <span
+                           className={`px-1.5 py-0.2 rounded-full text-[10px] font-black ${
+                              activeMode === 'excel'
+                                 ? 'bg-teal-500 text-white'
+                                 : 'bg-slate-200 text-slate-700'
+                           }`}
+                        >
+                           {batchApprovedCount}/{batchTags.length}
+                        </span>
+                     )}
+                  </button>
+               </div>
             </div>
 
-            {/* Основная сетка: Редактор параметров слева + Интерактивный Live Preview справа */}
-            <div className='grid grid-cols-1 lg:grid-cols-12 gap-6 items-start'>
+            {/* === РЕЖИМ 1: УЗКИЙ КОМПАКТНЫЙ ИНТЕРФЕЙС АВТОГЕНЕРАЦИИ ИЗ EXCEL === */}
+            {activeMode === 'excel' && (
+               <div className='space-y-3'>
+                  <input
+                     ref={excelInputRef}
+                     type='file'
+                     accept='.xlsx,.xls,.csv'
+                     onChange={(e) => {
+                        const file = e.target.files?.[0]
+                        if (file) handleExcelFileUpload(file)
+                     }}
+                     className='hidden'
+                  />
+
+                  {/* Компактная панель управления файлом, пересчётом и PDF */}
+                  <div className='bg-white rounded-2xl p-3 border border-slate-200/80 shadow-xs space-y-2.5'>
+                     <div className='flex flex-wrap items-center justify-between gap-2'>
+                        <div className='flex flex-wrap items-center gap-2'>
+                           <button
+                              type='button'
+                              disabled={isUploadingExcel}
+                              onClick={() => excelInputRef.current?.click()}
+                              className='px-3 py-1.5 rounded-xl bg-teal-600 hover:bg-teal-700 disabled:opacity-60 text-white text-xs font-bold transition flex items-center gap-1.5 cursor-pointer shadow-xs'
+                           >
+                              <Upload className='w-3.5 h-3.5' />
+                              <span>
+                                 {batchTags.length > 0
+                                    ? 'Другой Excel'
+                                    : 'Загрузить Excel'}
+                              </span>
+                           </button>
+
+                           {batchFileName && (
+                              <span className='inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-100 border border-slate-200 text-[11px] font-bold text-slate-700 max-w-[210px] truncate'>
+                                 <FileSpreadsheet className='w-3.5 h-3.5 text-emerald-600 shrink-0' />
+                                 <span className='truncate'>{batchFileName}</span>
+                              </span>
+                           )}
+
+                           <span className='inline-flex items-center px-2 py-1 rounded-lg bg-sky-50 border border-sky-200 text-[10px] font-extrabold text-sky-800'>
+                              Весовая → 100г (÷10) • Фасовка → вес/цена из названия
+                           </span>
+
+                           {batchTags.length > 0 && (
+                              <span className='text-[11px] font-bold text-slate-500'>
+                                 Утверждено:{' '}
+                                 <span className='text-emerald-700 font-black'>
+                                    {batchApprovedCount}
+                                 </span>{' '}
+                                 / {batchTags.length}
+                              </span>
+                           )}
+                        </div>
+
+                        <div className='flex flex-wrap items-center gap-1.5'>
+                           <select
+                              value={conversionMode}
+                              onChange={(e) =>
+                                 handleConversionModeChange(
+                                    e.target.value as PriceConversionMode
+                                 )
+                              }
+                              className='bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-[11px] font-bold text-slate-700 focus:outline-teal-500 cursor-pointer'
+                              title='Правило расчёта цены и веса по файлу'
+                           >
+                              <option value='auto'>
+                                 Умный: фасовка (200г/250г) как в файле, весовая ÷10 (100г)
+                              </option>
+                              <option value='div10'>Все ÷10 (строго 100г)</option>
+                              <option value='raw'>Без деления (как в файле)</option>
+                           </select>
+
+                           <select
+                              value={printSideMode}
+                              onChange={(e) =>
+                                 setPrintSideMode(e.target.value as any)
+                              }
+                              className='bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-[11px] font-bold text-slate-700 focus:outline-teal-500 cursor-pointer'
+                           >
+                              <option value='both'>
+                                 PDF: Лицо + Оборот (коды)
+                              </option>
+                              <option value='front_only'>PDF: Только лицо</option>
+                              <option value='back_only'>
+                                 PDF: Только коды весов
+                              </option>
+                           </select>
+
+                           {batchTags.length > 0 && (
+                              <button
+                                 type='button'
+                                 onClick={() => handleDownloadBatchPdf(true)}
+                                 className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-xs cursor-pointer ${
+                                    batchApprovedCount > 0
+                                       ? 'bg-rose-600 hover:bg-rose-700 text-white'
+                                       : 'bg-slate-200 text-slate-500 hover:bg-slate-300'
+                                 }`}
+                                 title='Скачать PDF с утверждёнными ценниками (10×6 см, 8 шт на А4)'
+                              >
+                                 <FileText className='w-3.5 h-3.5' />
+                                 <span>
+                                    Скачать PDF ({batchApprovedCount})
+                                 </span>
+                              </button>
+                           )}
+                        </div>
+                     </div>
+
+                     {batchTags.length > 0 && (
+                        <div className='flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100'>
+                           <div className='flex flex-wrap items-center gap-1.5'>
+                              <div className='relative'>
+                                 <Search className='w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2' />
+                                 <input
+                                    type='text'
+                                    value={batchSearch}
+                                    onChange={(e) =>
+                                       setBatchSearch(e.target.value)
+                                    }
+                                    placeholder='Поиск или код...'
+                                    className='pl-7 pr-6 py-1 rounded-lg border border-slate-200 bg-slate-50 text-xs font-medium text-slate-800 w-44 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:bg-white'
+                                 />
+                                 {batchSearch && (
+                                    <button
+                                       type='button'
+                                       onClick={() => setBatchSearch('')}
+                                       className='absolute right-1.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer'
+                                    >
+                                       <X className='w-3 h-3' />
+                                    </button>
+                                 )}
+                              </div>
+
+                              <div className='inline-flex rounded-lg bg-slate-100 p-0.5 text-[11px] font-bold'>
+                                 {(
+                                    [
+                                       {
+                                          id: 'all',
+                                          label: `Все (${batchTags.length})`,
+                                       },
+                                       {
+                                          id: 'pending',
+                                          label: `На проверке (${batchTags.length - batchApprovedCount})`,
+                                       },
+                                       {
+                                          id: 'approved',
+                                          label: `Утвержд. (${batchApprovedCount})`,
+                                       },
+                                    ] as const
+                                 ).map((f) => (
+                                    <button
+                                       key={f.id}
+                                       type='button'
+                                       onClick={() => setBatchFilter(f.id)}
+                                       className={`px-2 py-0.5 rounded-md transition cursor-pointer ${
+                                          batchFilter === f.id
+                                             ? 'bg-white text-slate-900 shadow-2xs'
+                                             : 'text-slate-500 hover:text-slate-800'
+                                       }`}
+                                    >
+                                       {f.label}
+                                    </button>
+                                 ))}
+                              </div>
+                           </div>
+
+                           <div className='flex flex-wrap items-center gap-1.5'>
+                              <button
+                                 type='button'
+                                 onClick={() => handleApproveFiltered(true)}
+                                 className='px-2.5 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 text-[11px] font-bold transition flex items-center gap-1 cursor-pointer'
+                              >
+                                 <Check className='w-3 h-3' />
+                                 <span>Утвердить все</span>
+                              </button>
+                              <button
+                                 type='button'
+                                 onClick={() => handleApproveFiltered(false)}
+                                 className='px-2.5 py-1 rounded-lg bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200 text-[11px] font-bold transition cursor-pointer'
+                              >
+                                 Снять все
+                              </button>
+                              <button
+                                 type='button'
+                                 onClick={() => handleSendBatchToQueue(true)}
+                                 className='px-2.5 py-1 rounded-lg bg-teal-50 hover:bg-teal-100 text-teal-700 border border-teal-200 text-[11px] font-bold transition cursor-pointer'
+                                 title='Добавить утверждённые в очередь печати (для Word или печати из браузера)'
+                              >
+                                 В очередь ({batchApprovedCount})
+                              </button>
+                              <button
+                                 type='button'
+                                 onClick={() => {
+                                    setBatchTags([])
+                                    setBatchFileName('')
+                                 }}
+                                 className='px-2 py-1 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-600 text-[11px] font-bold transition cursor-pointer'
+                                 title='Очистить список'
+                              >
+                                 <Trash2 className='w-3.5 h-3.5' />
+                              </button>
+                           </div>
+                        </div>
+                     )}
+                  </div>
+
+                  {/* Область загрузки Excel (если список пуст) */}
+                  {batchTags.length === 0 ? (
+                     <div
+                        onDragOver={(e) => {
+                           e.preventDefault()
+                        }}
+                        onDrop={(e) => {
+                           e.preventDefault()
+                           const file = e.dataTransfer.files?.[0]
+                           if (file) handleExcelFileUpload(file)
+                        }}
+                        onClick={() => excelInputRef.current?.click()}
+                        className='bg-white rounded-2xl border-2 border-dashed border-slate-300 hover:border-teal-500 hover:bg-teal-50/30 transition p-8 text-center cursor-pointer'
+                     >
+                        <div className='w-12 h-12 rounded-2xl bg-teal-50 text-teal-600 flex items-center justify-center mx-auto mb-3'>
+                           <FileSpreadsheet className='w-6 h-6' />
+                        </div>
+                        <h3 className='text-sm font-black text-slate-900'>
+                           Перетащите Excel прайс или нажмите для выбора файла
+                        </h3>
+                        <p className='text-xs text-slate-500 mt-1 max-w-lg mx-auto'>
+                           Цена берётся из 3-го столбика: если в названии есть
+                           фасовка (например{' '}
+                           <span className='font-bold text-slate-700'>
+                              200гр / 250гр
+                           </span>
+                           ) — ставятся её вес и цена, для остальной весовой рыбы —{' '}
+                           <span className='font-bold text-slate-700'>100г</span>{' '}
+                           с ценой ÷ 10.
+                        </p>
+                     </div>
+                  ) : filteredBatchTags.length === 0 ? (
+                     <div className='bg-white rounded-2xl border border-slate-200 p-8 text-center text-xs text-slate-400'>
+                        По текущему фильтру ценники не найдены
+                     </div>
+                  ) : (
+                     /* СЕТКА ЦЕННИКОВ ПО 4 В РЯД С МИНИ-ВИДЖЕТАМИ */
+                     <div className='grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3.5'>
+                        {filteredBatchTags.map((tag) => {
+                           const isFlipped = Boolean(flippedCards[tag.id])
+                           return (
+                              <div
+                                 key={tag.id}
+                                 className={`rounded-2xl border transition flex flex-col justify-between overflow-hidden ${
+                                    tag.approved
+                                       ? 'border-emerald-400 bg-emerald-50/40 ring-1 ring-emerald-400/50 shadow-xs'
+                                       : 'border-slate-200 bg-white hover:border-slate-300 shadow-2xs'
+                                 }`}
+                              >
+                                 {/* Превью ценника (лицо / оборот с кодом весов) */}
+                                 <div className='relative'>
+                                    <PriceTagMiniPreview
+                                       tag={tag}
+                                       side={isFlipped ? 'back' : 'front'}
+                                    />
+
+                                    {tag.approved && (
+                                       <span className='absolute top-1.5 left-1.5 px-1.5 py-0.5 rounded bg-emerald-600 text-white text-[9px] font-black flex items-center gap-0.5 shadow-xs'>
+                                          <Check className='w-2.5 h-2.5' />
+                                          OK
+                                       </span>
+                                    )}
+                                 </div>
+
+                                 {/* МИНИ-ВИДЖЕТ ПОД ЦЕННИКОМ */}
+                                 <div className='p-2.5 space-y-2 text-xs'>
+                                    {/* Название + (описание) */}
+                                    <div className='space-y-1'>
+                                       <input
+                                          type='text'
+                                          value={tag.title}
+                                          onChange={(e) =>
+                                             updateBatchTag(tag.id, {
+                                                title: e.target.value.toUpperCase(),
+                                             })
+                                          }
+                                          className='w-full px-2 py-1 rounded-lg border border-slate-200 bg-slate-50/70 focus:bg-white focus:border-teal-500 focus:outline-none text-xs font-bold text-slate-900 uppercase truncate'
+                                          title={tag.rawName}
+                                       />
+
+                                       <input
+                                          type='text'
+                                          value={tag.description}
+                                          onChange={(e) =>
+                                             updateBatchTag(tag.id, {
+                                                description:
+                                                   e.target.value.toUpperCase(),
+                                             })
+                                          }
+                                          placeholder='Описание (в скобках)'
+                                          className='w-full px-2 py-1 rounded-lg border border-slate-200 bg-slate-50/70 focus:bg-white focus:border-teal-500 focus:outline-none text-[11px] font-semibold text-slate-700 uppercase'
+                                       />
+
+                                       <div className='flex items-center justify-between text-[10px] text-slate-400 leading-none'>
+                                          <span className='truncate'>
+                                             Файл: {tag.rawPrice}₽
+                                             {tag.packGrams
+                                                ? ` (${tag.packGrams}г)`
+                                                : '/кг'}
+                                          </span>
+                                          <button
+                                             type='button'
+                                             onClick={() =>
+                                                setFlippedCards((prev) => ({
+                                                   ...prev,
+                                                   [tag.id]: !prev[tag.id],
+                                                }))
+                                             }
+                                             className='inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold text-[10px] cursor-pointer shrink-0'
+                                             title='Перевернуть: лицо / оборот (код весов)'
+                                          >
+                                             <RotateCw className='w-2.5 h-2.5' />
+                                             <span>
+                                                {isFlipped ? 'Лицо' : 'Оборот'}
+                                             </span>
+                                          </button>
+                                       </div>
+                                    </div>
+
+                                    {/* Цена, Вес и Код весов рядом */}
+                                    <div className='grid grid-cols-3 gap-1.5'>
+                                       <div>
+                                          <label className='block text-[10px] font-bold text-slate-400 uppercase leading-none mb-1'>
+                                             Цена
+                                          </label>
+                                          <div className='relative'>
+                                             <input
+                                                type='text'
+                                                inputMode='decimal'
+                                                value={tag.price}
+                                                onChange={(e) =>
+                                                   updateBatchTag(tag.id, {
+                                                      price: e.target.value,
+                                                      priceManuallyEdited: true,
+                                                   })
+                                                }
+                                                className='w-full pl-2 pr-4 py-1 rounded-lg border border-slate-200 bg-white focus:border-teal-500 focus:outline-none text-xs font-black text-slate-900'
+                                             />
+                                             <span className='absolute right-1.5 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-400 pointer-events-none'>
+                                                ₽
+                                             </span>
+                                          </div>
+                                       </div>
+
+                                       <div>
+                                          <label className='block text-[10px] font-bold text-slate-400 uppercase leading-none mb-1'>
+                                             Вес
+                                          </label>
+                                          <input
+                                             type='text'
+                                             value={tag.weight}
+                                             onChange={(e) =>
+                                                updateBatchTag(tag.id, {
+                                                   weight: e.target.value,
+                                                })
+                                             }
+                                             placeholder='100г'
+                                             className='w-full px-1.5 py-1 rounded-lg border border-slate-200 bg-white focus:border-teal-500 focus:outline-none text-xs font-bold text-slate-700 text-center'
+                                          />
+                                       </div>
+
+                                       <div>
+                                          <label className='block text-[10px] font-bold text-slate-400 uppercase leading-none mb-1'>
+                                             Код весов
+                                          </label>
+                                          <input
+                                             type='text'
+                                             value={tag.productCode || ''}
+                                             onChange={(e) =>
+                                                updateBatchTag(tag.id, {
+                                                   productCode: e.target.value,
+                                                })
+                                             }
+                                             placeholder='PLU'
+                                             className='w-full px-1.5 py-1 rounded-lg border border-slate-200 bg-white focus:border-teal-500 focus:outline-none text-xs font-mono font-bold text-teal-800'
+                                          />
+                                       </div>
+                                    </div>
+
+                                    {/* Быстрый выбор вида копчения */}
+                                    <div className='grid grid-cols-4 gap-1'>
+                                       {(
+                                          ['XK', 'GK', 'SS', 'VYAL'] as const
+                                       ).map((code) => {
+                                          const cfg = PROCESSING_TYPES[code]
+                                          const active =
+                                             tag.processingType === code
+                                          return (
+                                             <button
+                                                key={code}
+                                                type='button'
+                                                onClick={() =>
+                                                   updateBatchTag(tag.id, {
+                                                      processingType: code,
+                                                   })
+                                                }
+                                                className={`py-1 rounded-lg text-[11px] font-black transition cursor-pointer border ${
+                                                   active
+                                                      ? 'text-[#151b32] border-slate-900 shadow-2xs'
+                                                      : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-50'
+                                                }`}
+                                                style={
+                                                   active
+                                                      ? {
+                                                           background: `linear-gradient(to right, ${cfg.colorStart}, ${cfg.colorEnd})`,
+                                                        }
+                                                      : undefined
+                                                }
+                                                title={cfg.label}
+                                             >
+                                                {cfg.badgeText}
+                                             </button>
+                                          )
+                                       })}
+                                    </div>
+
+                                    {/* Утверждение и доп. действия */}
+                                    <div className='flex items-center gap-1 pt-0.5'>
+                                       <button
+                                          type='button'
+                                          onClick={() =>
+                                             updateBatchTag(tag.id, {
+                                                approved: !tag.approved,
+                                             })
+                                          }
+                                          className={`flex-1 py-1 rounded-lg text-[11px] font-bold transition flex items-center justify-center gap-1 cursor-pointer ${
+                                             tag.approved
+                                                ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                                                : 'bg-slate-900 hover:bg-slate-800 text-white'
+                                          }`}
+                                       >
+                                          <Check className='w-3 h-3' />
+                                          <span>
+                                             {tag.approved
+                                                ? 'Утверждено'
+                                                : 'Утвердить'}
+                                          </span>
+                                       </button>
+
+                                       <button
+                                          type='button'
+                                          onClick={() =>
+                                             handleOpenBatchItemInEditor(tag)
+                                          }
+                                          className='p-1 rounded-lg border border-slate-200 text-slate-400 hover:text-teal-700 hover:bg-teal-50 transition cursor-pointer'
+                                          title='Открыть в детальном редакторе'
+                                       >
+                                          <Sliders className='w-3 h-3' />
+                                       </button>
+
+                                       <button
+                                          type='button'
+                                          onClick={() => removeBatchTag(tag.id)}
+                                          className='p-1 rounded-lg border border-slate-200 text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer'
+                                          title='Удалить позицию'
+                                       >
+                                          <Trash2 className='w-3 h-3' />
+                                       </button>
+                                    </div>
+                                 </div>
+                              </div>
+                           )
+                        })}
+                     </div>
+                  )}
+               </div>
+            )}
+
+            {/* === РЕЖИМ 2: РУЧНОЙ РЕДАКТОР + ОЧЕРЕДЬ === */}
+            {activeMode === 'manual' && (
+               <>
+                  {/* Основная сетка: Редактор параметров слева + Интерактивный Live Preview справа */}
+                  <div className='grid grid-cols-1 lg:grid-cols-12 gap-6 items-start'>
                {/* ЛЕВАЯ КОЛОНКА: Панель параметров (5 колонок) */}
                <div className='lg:col-span-5 space-y-5'>
                   <div className='bg-white rounded-3xl p-5 sm:p-6 border border-slate-200/80 shadow-xs space-y-5'>
@@ -2653,30 +3735,11 @@ export default function PriceTagsTab() {
 
                            <button
                               type='button'
-                              onClick={() => handleExportWord(printQueue)}
-                              className='px-3.5 py-2 rounded-xl bg-blue-700 hover:bg-blue-800 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-xs cursor-pointer'
-                              title='Скачать все ценники из очереди в документ Word (.doc) со строгим размером 10x6 см'
-                           >
-                              <FileDown className='w-4 h-4' />
-                              <span>Скачать Word ({printQueue.length})</span>
-                           </button>
-
-                           <button
-                              type='button'
                               onClick={() => setPrintQueue([])}
                               className='px-3 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer'
                            >
                               <Trash2 className='w-3.5 h-3.5' />
                               <span>Очистить</span>
-                           </button>
-
-                           <button
-                              type='button'
-                              onClick={() => window.print()}
-                              className='px-4 py-2 rounded-xl bg-gradient-to-r from-teal-600 to-indigo-600 hover:from-teal-700 hover:to-indigo-700 text-white text-xs sm:text-sm font-bold transition flex items-center gap-2 shadow-md shadow-teal-600/20 cursor-pointer'
-                           >
-                              <Printer className='w-4 h-4' />
-                              <span>Распечатать все ({printQueue.length})</span>
                            </button>
                         </>
                      )}
@@ -2696,49 +3759,23 @@ export default function PriceTagsTab() {
                         </span>
                      </div>
 
-                     <div className='flex items-center gap-4'>
-                        <div className='flex items-center gap-2 mr-2'>
-                           <span className='text-slate-400'>Печать:</span>
-                           <select
-                              value={printSideMode}
-                              onChange={(e) =>
-                                 setPrintSideMode(e.target.value as any)
-                              }
-                              className='bg-white font-bold text-slate-800 text-xs px-2 py-1 rounded-lg border border-slate-300 focus:outline-teal-500 cursor-pointer'
-                           >
-                              <option value='both'>
-                                 Лицо + Оборот (коды весов)
-                              </option>
-                              <option value='front_only'>Только лицо</option>
-                              <option value='back_only'>
-                                 Только коды весов (оборот)
-                              </option>
-                           </select>
-                        </div>
-
-                        <span className='text-slate-400'>
-                           Режим расхода краски:
-                        </span>
-                        <label className='flex items-center gap-1.5 cursor-pointer'>
-                           <input
-                              type='radio'
-                              name='printLayoutMode'
-                              checked={printLayoutMode === 'color'}
-                              onChange={() => setPrintLayoutMode('color')}
-                              className='text-teal-600 focus:ring-teal-500'
-                           />
-                           <span>Полноцветный (синий фон/текстура)</span>
-                        </label>
-                        <label className='flex items-center gap-1.5 cursor-pointer'>
-                           <input
-                              type='radio'
-                              name='printLayoutMode'
-                              checked={printLayoutMode === 'eco'}
-                              onChange={() => setPrintLayoutMode('eco')}
-                              className='text-teal-600 focus:ring-teal-500'
-                           />
-                           <span>Эконом (белый фон)</span>
-                        </label>
+                     <div className='flex items-center gap-2'>
+                        <span className='text-slate-400'>Печать:</span>
+                        <select
+                           value={printSideMode}
+                           onChange={(e) =>
+                              setPrintSideMode(e.target.value as any)
+                           }
+                           className='bg-white font-bold text-slate-800 text-xs px-2 py-1 rounded-lg border border-slate-300 focus:outline-teal-500 cursor-pointer'
+                        >
+                           <option value='both'>
+                              Лицо + Оборот (коды весов)
+                           </option>
+                           <option value='front_only'>Только лицо</option>
+                           <option value='back_only'>
+                              Только коды весов (оборот)
+                           </option>
+                        </select>
                      </div>
                   </div>
                )}
@@ -3028,6 +4065,8 @@ export default function PriceTagsTab() {
                   </div>
                )}
             </div>
+               </>
+            )}
          </div>
 
          {/* ПЕЧАТНАЯ ВЕРСТКА ДЛЯ СЕТКИ НА А4 (Отображается только в окне печати @media print, строгий формат 10см x 6см) */}
@@ -3162,26 +4201,23 @@ export default function PriceTagsTab() {
                                           : PROCESSING_TYPES[tag.processingType]
 
                                     const tagTexture =
-                                       printLayoutMode === 'eco'
-                                          ? ''
-                                          : tag.textureMode === 'custom' &&
-                                              tag.customTextureUrl
-                                            ? tag.customTextureUrl
-                                            : tag.textureMode === 'solid' ||
-                                                tag.textureMode === 'solid_blue'
-                                              ? ''
-                                              : tag.textureMode === 'auto'
-                                                ? tag.processingType ===
-                                                  'CUSTOM'
-                                                   ? '/textures/xk.jpg'
-                                                   : PROCESSING_TYPES[
-                                                        tag.processingType
-                                                     ].textureUrl
-                                                : '/textures/' +
-                                                  tag.textureMode +
-                                                  '.jpg'
+                                       tag.textureMode === 'custom' &&
+                                       tag.customTextureUrl
+                                          ? tag.customTextureUrl
+                                          : tag.textureMode === 'solid' ||
+                                              tag.textureMode === 'solid_blue'
+                                            ? ''
+                                            : tag.textureMode === 'auto'
+                                              ? tag.processingType === 'CUSTOM'
+                                                 ? '/textures/xk.jpg'
+                                                 : PROCESSING_TYPES[
+                                                      tag.processingType
+                                                   ].textureUrl
+                                              : '/textures/' +
+                                                tag.textureMode +
+                                                '.jpg'
 
-                                    const isEco = printLayoutMode === 'eco'
+                                    const isEco = false
                                     const cleanItemWeight = formatWeightText(
                                        tag.weight
                                     )

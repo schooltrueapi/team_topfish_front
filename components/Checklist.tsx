@@ -30,12 +30,14 @@ import {
    FlaskConical,
    Eye,
    Snowflake,
+   FileDown,
 } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import BulkPlanModal, { BulkActionType } from './BulkPlanModal'
 import TrashModal from './TrashModal'
 import PositionHistoryModal from './PositionHistoryModal'
 import { History } from 'lucide-react'
+import { generateProductionPlanPdf } from '@/lib/planPdf'
 
 type SortField = 'none' | 'stock' | 'price'
 type SortDirection = 'asc' | 'desc'
@@ -168,6 +170,9 @@ interface ChecklistProps {
    weekId: string
    weekStatus: string
    weekNumber: number
+   weekYear?: number
+   weekStartDate?: string
+   weekEndDate?: string
    items: PlanItem[]
    currentFilter: string
    autoSyncPrice?: boolean
@@ -185,6 +190,9 @@ export default function Checklist({
    weekId,
    weekStatus,
    weekNumber,
+   weekYear,
+   weekStartDate,
+   weekEndDate,
    items,
    currentFilter,
    autoSyncPrice = true,
@@ -247,6 +255,7 @@ export default function Checklist({
    const [editingPlannedKgId, setEditingPlannedKgId] = useState<string | null>(null)
    const [plannedKgInput, setPlannedKgInput] = useState<string>('')
    const [isSavingPlannedKg, setIsSavingPlannedKg] = useState(false)
+   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false)
 
    const fetchRawMaterialsSummary = async () => {
       if (!weekId) return
@@ -342,6 +351,57 @@ export default function Checklist({
       link.download = `Потребность_в_сырье_неделя_${weekNumber}.csv`
       link.click()
       URL.revokeObjectURL(url)
+   }
+
+   const handleDownloadPlanPdf = async () => {
+      const plannedItems = activeItems.filter((i) => i.isPlanned)
+      if (plannedItems.length === 0) {
+         toast.error('В плане пока нет позиций для выгрузки в PDF')
+         return
+      }
+      try {
+         setIsGeneratingPdf(true)
+         const pdfBlob = await generateProductionPlanPdf({
+            weekNumber,
+            year: weekYear,
+            startDate: weekStartDate,
+            endDate: weekEndDate,
+            weekStatus,
+            isArchive,
+            items: plannedItems.map((item) => {
+               const def = rawMaterialsSummary?.itemDeficits?.[item.id]
+               return {
+                  id: item.id,
+                  productName: item.productName,
+                  category: item.category,
+                  stockKg: item.stockKg,
+                  plannedKg: item.plannedKg,
+                  estimatedBatchKg: def?.isDefaultBatch ? def?.plannedKg : null,
+                  isNew: item.isNew,
+                  isTrialNovelty: item.isTrialNovelty,
+                  isHit:
+                     !item.abcManualDisabled &&
+                     (Boolean(item.isHit) || item.smartMeta?.tag === 'HIT_REPEAT'),
+                  abcCategory: item.abcCategory,
+               }
+            }),
+         })
+
+         const url = URL.createObjectURL(pdfBlob)
+         const link = document.createElement('a')
+         link.href = url
+         link.download = `План_производства_Неделя_${weekNumber}${weekYear ? `_${weekYear}` : ''}.pdf`
+         document.body.appendChild(link)
+         link.click()
+         link.remove()
+         setTimeout(() => URL.revokeObjectURL(url), 1000)
+         toast.success(`PDF плана сформирован (${plannedItems.length} поз.)`)
+      } catch (err) {
+         console.error('Ошибка генерации PDF плана:', err)
+         toast.error('Не удалось сформировать PDF плана')
+      } finally {
+         setIsGeneratingPdf(false)
+      }
    }
 
    const getFullImageUrl = (path?: string | null) => {
@@ -1071,6 +1131,29 @@ export default function Checklist({
                      {trashItems.length > 0 && (
                         <span className='px-1.5 py-0.2 rounded-full text-[10px] font-black bg-rose-600 text-white leading-tight shadow-xs'>
                            {trashItems.length}
+                        </span>
+                     )}
+                  </button>
+
+                  {/* Кнопка Скачать PDF (лист А4 для цеха) */}
+                  <button
+                     type='button'
+                     onClick={handleDownloadPlanPdf}
+                     disabled={plannedCount === 0 || isGeneratingPdf}
+                     className='px-3 py-2 rounded-xl text-xs sm:text-sm font-bold transition flex items-center gap-1.5 cursor-pointer shadow-2xs bg-slate-900 hover:bg-slate-800 text-white border border-slate-900 disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap'
+                     title={
+                        plannedCount === 0
+                           ? 'Нет позиций в плане для выгрузки в PDF'
+                           : `Скачать PDF списка позиций в плане (${plannedCount} поз.) на А4 для печати в цех`
+                     }
+                  >
+                     <FileDown
+                        className={`w-3.5 h-3.5 text-teal-400 ${isGeneratingPdf ? 'animate-bounce' : ''}`}
+                     />
+                     <span>{isGeneratingPdf ? 'PDF...' : 'Скачать PDF'}</span>
+                     {plannedCount > 0 && (
+                        <span className='px-1.5 py-0.2 rounded-full text-[10px] font-black bg-teal-500/20 text-teal-300 leading-tight'>
+                           {plannedCount}
                         </span>
                      )}
                   </button>
