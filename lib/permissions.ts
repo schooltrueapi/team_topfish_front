@@ -12,6 +12,7 @@ import {
   ClipboardCheck,
   Snowflake,
   Tag,
+  ShieldAlert,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -25,7 +26,8 @@ export type TabId =
   | 'monthly_plan'
   | 'inventory'
   | 'freezer'
-  | 'price_tags';
+  | 'price_tags'
+  | 'plan_control';
 
 export type PermissionId =
   | 'FULL_ACCESS'
@@ -40,7 +42,8 @@ export type PermissionId =
   | 'ACCESS_MONTHLY_PLAN'
   | 'ACCESS_INVENTORY'
   | 'ACCESS_FREEZER'
-  | 'ACCESS_PRICE_TAGS';
+  | 'ACCESS_PRICE_TAGS'
+  | 'ACCESS_PLAN_CONTROL';
 
 export interface PermissionConfigItem {
   id: PermissionId;
@@ -167,6 +170,15 @@ export const PERMISSION_CONFIG: PermissionConfigItem[] = [
     badgeClass: 'bg-fuchsia-100 text-fuchsia-800 border-fuchsia-200',
     icon: Tag,
   },
+  {
+    id: 'ACCESS_PLAN_CONTROL',
+    name: 'Контроль выпуска (План vs 1С)',
+    description: 'Сверка плана с фактом пополнения остатков 1С, выявление приписок и внепланового выпуска',
+    group: 'section',
+    tabId: 'plan_control',
+    badgeClass: 'bg-rose-100 text-rose-800 border-rose-200',
+    icon: ShieldAlert,
+  },
 ];
 
 export const SYSTEM_PERMISSIONS = PERMISSION_CONFIG.filter((p) => p.group === 'system');
@@ -184,5 +196,6 @@ export const TAB_PERMISSION_MAP: Record<TabId, PermissionId> = {
   inventory: 'ACCESS_INVENTORY',
   freezer: 'ACCESS_FREEZER',
   price_tags: 'ACCESS_PRICE_TAGS',
+  plan_control: 'ACCESS_PLAN_CONTROL',
 };
 

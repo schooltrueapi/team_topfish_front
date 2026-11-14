@@ -27,6 +27,7 @@ import MonthlyPlanTab from '@/components/MonthlyPlanTab'
 import InventoryTab from '@/components/InventoryTab'
 import FreezerTab from '@/components/FreezerTab'
 import PriceTagsTab from '@/components/PriceTagsTab'
+import PlanControlTab from '@/components/PlanControlTab'
 import {
    RotateCcw,
    FlaskConical,
@@ -41,6 +42,7 @@ import {
    Snowflake,
    Tag,
    Lock,
+   ShieldAlert,
 } from 'lucide-react'
 import {
    SECTION_PERMISSIONS,
@@ -141,6 +143,7 @@ export default function DashboardPage() {
             'inventory',
             'freezer',
             'price_tags',
+            'plan_control',
          ]
          if (savedTab && validTabs.includes(savedTab)) {
             setActiveTab(savedTab)
@@ -991,6 +994,31 @@ export default function DashboardPage() {
                            </span>
                         </button>
                      )}
+
+                     {/* Вкладка «Контроль выпуска» (План vs 1С) */}
+                     {hasPermission(TAB_PERMISSION_MAP.plan_control) && (
+                        <button
+                           type='button'
+                           onClick={() => setActiveTab('plan_control')}
+                           className={`px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all flex items-center gap-2 cursor-pointer ${
+                              effectiveTab === 'plan_control'
+                                 ? 'bg-gradient-to-r from-rose-700 via-rose-800 to-slate-900 text-white shadow-md shadow-rose-950/25 ring-1 ring-rose-500/50'
+                                 : 'bg-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                           }`}
+                        >
+                           <ShieldAlert className='w-4 h-4 text-rose-500' />
+                           <span>Контроль выпуска</span>
+                           <span
+                              className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                 effectiveTab === 'plan_control'
+                                    ? 'bg-white/20 text-white'
+                                    : 'bg-rose-50 text-rose-700'
+                              }`}
+                           >
+                              План vs 1С
+                           </span>
+                        </button>
+                     )}
                   </div>
 
                   {/* Быстрая подсказка / статус */}
@@ -1013,7 +1041,9 @@ export default function DashboardPage() {
                                       ? 'Склад заморозки • Остатки сырья и себестоимость'
                                       : effectiveTab === 'price_tags'
                                         ? 'Генератор ценников • Фирменные карточки ТопФиш (Х/К, Г/К, С/С, ВЯЛ)'
-                                        : 'База клиентов и контрагентов • Обзвон и контакты'}
+                                        : effectiveTab === 'plan_control'
+                                          ? 'Контроль выпуска • Сверка утвержденных галочек плана с пополнением 1С'
+                                          : 'База клиентов и контрагентов • Обзвон и контакты'}
                   </div>
                </div>
             )}
@@ -1042,6 +1072,12 @@ export default function DashboardPage() {
                      Для вашей роли пока не открыт ни один раздел. Обратитесь к руководителю для настройки прав доступа.
                   </p>
                </div>
+            ) : effectiveTab === 'plan_control' && hasPermission(TAB_PERMISSION_MAP.plan_control) ? (
+               <PlanControlTab
+                  currentWeek={displayWeek}
+                  weeksHistory={weeksHistory}
+                  onSelectWeek={handleSelectWeek}
+               />
             ) : effectiveTab === 'price_tags' && hasPermission(TAB_PERMISSION_MAP.price_tags) ? (
                <PriceTagsTab />
             ) : effectiveTab === 'freezer' && hasPermission(TAB_PERMISSION_MAP.freezer) ? (
