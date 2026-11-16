@@ -49,6 +49,13 @@ export interface PlanItem {
    category?: string | null
    price?: number | null
    stockKg?: number | null
+   prevStockKg?: number | null
+   stockHistory?: {
+      at: string
+      stockKg: number
+      fileName?: string
+      price?: number | null
+   }[] | null
    isNew: boolean
    newExpiresAt?: string | null
    isPlanned: boolean
@@ -1823,6 +1830,7 @@ export default function Checklist({
                         return (
                            <tr
                               key={item.id}
+                               id={`plan-item-${item.id}`}
                               onClick={() =>
                                  canTogglePlan && handleToggle(item)
                               }

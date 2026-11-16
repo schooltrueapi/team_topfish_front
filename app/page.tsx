@@ -9,6 +9,7 @@ import Navbar from '@/components/Navbar'
 import AttentionBanner from '@/components/AttentionBanner'
 import WeekConclusionBanner from '@/components/WeekConclusionBanner'
 import Checklist, { PlanItem } from '@/components/Checklist'
+import FreshOutputBanner from '@/components/FreshOutputBanner'
 import ReviewModal from '@/components/ReviewModal'
 import AuditLogsDrawer from '@/components/AuditLogsDrawer'
 import RolesModal from '@/components/RolesModal'
@@ -646,6 +647,28 @@ export default function DashboardPage() {
       setSnapshotRefreshKey((k) => k + 1)
    }
 
+   // Быстрое переключение статуса "В плане" из менюшки свежего выхода
+   const handleTogglePlanItem = async (item: PlanItem) => {
+      try {
+         const res = await api.put(`/api/plan/item/${item.id}/toggle`)
+         handleItemUpdated({
+            ...item,
+            isPlanned: res.data.isPlanned,
+            plannedKg: res.data.plannedKg,
+            resultStatus: res.data.resultStatus,
+         })
+         toast.success(
+            res.data.isPlanned
+               ? `«${item.productName}» включена в план`
+               : `«${item.productName}» убрана из плана`
+         )
+      } catch (err: any) {
+         toast.error(
+            err.response?.data?.error || 'Ошибка изменения статуса в плане'
+         )
+      }
+   }
+
    const handleReviewConfirmed = () => {
       setNeedsReview(false)
       setReviewWeek(null)
@@ -1176,6 +1199,20 @@ export default function DashboardPage() {
                               isArchive={false}
                               refreshTrigger={snapshotRefreshKey}
                               currentItems={activeItems}
+                           />
+                        </div>
+                     )}
+
+                  {/* Открывающаяся менюшка: Свежий выход продукции из цеха (пополнение остатка на активной неделе) */}
+                  {!isViewingArchive &&
+                     !isInitialLoading &&
+                     activeItems.length > 0 && (
+                        <div className='mt-4'>
+                           <FreshOutputBanner
+                              items={activeItems}
+                              uploadReport={displayWeek?.uploadReport || currentWeek?.uploadReport || uploadDiffData}
+                              canTogglePlan={hasPermission('TOGGLE_PLAN')}
+                              onTogglePlan={handleTogglePlanItem}
                            />
                         </div>
                      )}
