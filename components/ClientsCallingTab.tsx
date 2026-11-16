@@ -324,12 +324,19 @@ interface ClientsCallingTabProps {
    onCountChange?: (count: number) => void
    isGlobalTabActive?: boolean
    onRequestSwitchToCallingTab?: () => void
+   onCallingSessionStateChange?: (state: {
+      isActive: boolean
+      city?: string
+      current?: number
+      total?: number
+   }) => void
 }
 
 export default function ClientsCallingTab({
    onCountChange,
    isGlobalTabActive = true,
    onRequestSwitchToCallingTab,
+   onCallingSessionStateChange,
 }: ClientsCallingTabProps) {
    const { user, hasPermission } = useAuth()
 
@@ -539,6 +546,9 @@ export default function ClientsCallingTab({
                if (typeof data.isDockCollapsed === 'boolean') {
                   setIsDockCollapsed(data.isDockCollapsed)
                }
+               if (typeof data.isDockVisible === 'boolean') {
+                  setIsDockVisible(data.isDockVisible)
+               }
                setIsCallingSessionActive(true)
                if (data.activeViewMode) {
                   setActiveViewMode(data.activeViewMode)
@@ -569,6 +579,7 @@ export default function ClientsCallingTab({
                isSessionFinished,
                activeViewMode,
                isDockCollapsed,
+               isDockVisible,
                savedAt: Date.now(),
             }
             localStorage.setItem(userKey, JSON.stringify(payload))
@@ -591,7 +602,24 @@ export default function ClientsCallingTab({
       isSessionFinished,
       activeViewMode,
       isDockCollapsed,
+      isDockVisible,
       user?.id,
+   ])
+
+   // 3. Оповещение родительского компонента об активной сессии обзвона (для индикации во вкладке)
+   useEffect(() => {
+      onCallingSessionStateChange?.({
+         isActive: isCallingSessionActive,
+         city: sessionCity,
+         current: currentCallIndex + 1,
+         total: sessionClients.length,
+      })
+   }, [
+      isCallingSessionActive,
+      sessionCity,
+      currentCallIndex,
+      sessionClients.length,
+      onCallingSessionStateChange,
    ])
 
    // Загрузка данных
@@ -1351,6 +1379,7 @@ export default function ClientsCallingTab({
          setIsSessionFinished(false)
          setIsCitySelectModalOpen(false)
          setIsCallingSessionActive(true)
+         setIsDockVisible(true)
          setActiveViewMode('workspace')
          toast.success(
             `Рабочее место обзвона: ${cityToLoad} (${items.length} активных кл.)`
@@ -1651,6 +1680,7 @@ export default function ClientsCallingTab({
    const handleCloseSession = () => {
       setActiveViewMode('registry')
       setIsDockCollapsed(false)
+      setIsDockVisible(true)
    }
 
    // Полное завершение сессии обзвона по городу (выход в реестр)
@@ -3170,6 +3200,7 @@ export default function ClientsCallingTab({
                            onClick={() => {
                               setActiveViewMode('registry')
                               setIsDockCollapsed(false)
+                              setIsDockVisible(true)
                            }}
                            className='px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer'
                            title='Свернуть в мини-панель'
@@ -5660,76 +5691,91 @@ export default function ClientsCallingTab({
           {/* ЕДИНЫЙ СКВОЗНОЙ ПЛАВАЮЩИЙ ВИДЖЕТ ОБЗВОНА (Портал в document.body) */}
          {isMounted &&
             isCallingSessionActive &&
+            isDockVisible &&
             (!isGlobalTabActive || activeViewMode !== 'workspace') &&
             typeof document !== 'undefined' &&
             createPortal(
-               isDockCollapsed ? (
-                  /* Свернутый компактный вид */
-                  <div className='fixed bottom-5 right-5 z-[9999] max-w-sm w-full bg-slate-900/95 backdrop-blur-md text-white p-3 rounded-2xl border border-teal-500/40 shadow-2xl flex items-center justify-between gap-3 select-none animate-in slide-in-from-bottom-2 duration-200'>
-                     <div className='flex items-center gap-2.5 min-w-0'>
-                        <span className='flex h-2.5 w-2.5 relative shrink-0'>
-                           <span className='animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75'></span>
-                           <span className='relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500'></span>
-                        </span>
-                        <div className='min-w-0'>
-                           <div className='text-xs font-bold text-white truncate flex items-center gap-1.5'>
-                              <span>{sessionClients[currentCallIndex]?.name || `г. ${sessionCity}`}</span>
-                              <span className='text-[10px] text-teal-400 bg-teal-950/60 px-1.5 py-0.5 rounded font-mono'>
-                                 #{currentCallIndex + 1}/{sessionClients.length}
-                              </span>
-                           </div>
-                           {sessionClients[currentCallIndex]?.phones?.[0] && (
-                              <div className='text-[11px] font-mono text-slate-300 truncate'>
-                                 {sessionClients[currentCallIndex].phones[0]}
+               <div
+                  className={`fixed bottom-5 right-5 z-[9999] bg-slate-900 text-white rounded-2xl shadow-2xl border border-teal-500/40 backdrop-blur-md select-none transition-all duration-200 ease-out ${
+                     isDockCollapsed ? 'w-[360px] p-3' : 'w-[500px] p-4 space-y-3'
+                  } max-w-[calc(100vw-2.5rem)]`}
+               >
+                  {isDockCollapsed ? (
+                     /* Свернутый компактный вид */
+                     <div className='flex items-center justify-between gap-3'>
+                        <div className='flex items-center gap-2.5 min-w-0'>
+                           <span className='flex h-2.5 w-2.5 relative shrink-0'>
+                              <span className='animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75'></span>
+                              <span className='relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500'></span>
+                           </span>
+                           <div className='min-w-0'>
+                              <div className='text-xs font-bold text-white truncate flex items-center gap-1.5'>
+                                 <span>{sessionClients[currentCallIndex]?.name || `г. ${sessionCity}`}</span>
+                                 <span className='text-[10px] text-teal-400 bg-teal-950/60 px-1.5 py-0.5 rounded font-mono'>
+                                    #{currentCallIndex + 1}/{sessionClients.length}
+                                 </span>
                               </div>
+                              {sessionClients[currentCallIndex]?.phones?.[0] && (
+                                 <div className='text-[11px] font-mono text-slate-300 truncate'>
+                                    {sessionClients[currentCallIndex].phones[0]}
+                                 </div>
+                              )}
+                           </div>
+                        </div>
+
+                        <div className='flex items-center gap-1.5 shrink-0'>
+                           {sessionClients[currentCallIndex]?.phones?.[0] && (
+                              <a
+                                 href={`tel:${sessionClients[currentCallIndex].phones[0].replace(/[^\d+]/g, '')}`}
+                                 className='p-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white transition'
+                                 title='Позвонить'
+                              >
+                                 <PhoneCall className='w-3.5 h-3.5 fill-white' />
+                              </a>
                            )}
+
+                           <button
+                              type='button'
+                              onClick={() => setIsDockCollapsed(false)}
+                              className='p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 transition cursor-pointer'
+                              title='Развернуть карточку'
+                           >
+                              <ChevronUp className='w-4 h-4' />
+                           </button>
+
+                           <button
+                              type='button'
+                              onClick={() => {
+                                 onRequestSwitchToCallingTab?.()
+                                 setActiveViewMode('workspace')
+                              }}
+                              className='p-1.5 rounded-xl bg-teal-600 hover:bg-teal-500 text-white transition cursor-pointer'
+                              title='Развернуть рабочее место'
+                           >
+                              <Maximize2 className='w-4 h-4' />
+                           </button>
+
+                           <button
+                              type='button'
+                              onClick={() => setIsDockVisible(false)}
+                              className='p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition cursor-pointer'
+                              title='Закрыть панель'
+                           >
+                              <X className='w-4 h-4' />
+                           </button>
                         </div>
                      </div>
-
-                     <div className='flex items-center gap-1.5 shrink-0'>
-                        {sessionClients[currentCallIndex]?.phones?.[0] && (
-                           <a
-                              href={`tel:${sessionClients[currentCallIndex].phones[0].replace(/[^\d+]/g, '')}`}
-                              className='p-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white transition'
-                              title='Позвонить'
-                           >
-                              <PhoneCall className='w-3.5 h-3.5 fill-white' />
-                           </a>
-                        )}
-
-                        <button
-                           type='button'
-                           onClick={() => setIsDockCollapsed(false)}
-                           className='p-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 transition cursor-pointer'
-                           title='Развернуть карточку'
-                        >
-                           <ChevronUp className='w-4 h-4' />
-                        </button>
-
-                        <button
-                           type='button'
-                           onClick={() => {
-                              onRequestSwitchToCallingTab?.()
-                              setActiveViewMode('workspace')
-                           }}
-                           className='p-1.5 rounded-xl bg-teal-600 hover:bg-teal-500 text-white transition cursor-pointer'
-                           title='Развернуть рабочее место'
-                        >
-                           <Maximize2 className='w-4 h-4' />
-                        </button>
-                     </div>
-                  </div>
-               ) : (
-                  /* Развернутый виджет обзвона */
-                  <div className='fixed bottom-5 right-5 z-[9999] w-[480px] max-w-[calc(100vw-1.5rem)] bg-slate-900 text-white rounded-2xl shadow-2xl border border-teal-500/40 p-4 space-y-3 backdrop-blur-md animate-in slide-in-from-bottom-5 duration-200 select-none'>
-                     {/* Dock Header */}
-                     <div className='flex items-center justify-between gap-2 border-b border-slate-800 pb-2.5'>
-                        <div className='flex items-center gap-2 min-w-0'>
-                           <span className='w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping shrink-0'></span>
-                           <div className='min-w-0'>
-                              <h4 className='text-xs font-black text-white truncate'>
-                                 Обзвон: г. {sessionCity}
-                              </h4>
+                  ) : (
+                     /* Развернутый виджет обзвона */
+                     <>
+                        {/* Dock Header */}
+                        <div className='flex items-center justify-between gap-2 border-b border-slate-800 pb-2.5'>
+                           <div className='flex items-center gap-2 min-w-0'>
+                              <span className='w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping shrink-0'></span>
+                              <div className='min-w-0'>
+                                 <h4 className='text-xs font-black text-white truncate'>
+                                    Обзвон: г. {sessionCity}
+                                 </h4>
                               <div className='text-[10px] text-teal-400 font-bold'>
                                  Клиент {currentCallIndex + 1} из {sessionClients.length} (
                                  {sessionClients.length > 0
@@ -5764,13 +5810,9 @@ export default function ClientsCallingTab({
                            </button>
                            <button
                               type='button'
-                              onClick={() => {
-                                 if (confirm('Завершить сессию обзвона?')) {
-                                    handleFinishAndExitSession()
-                                 }
-                              }}
-                              className='p-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-rose-400 transition cursor-pointer'
-                              title='Завершить обзвон'
+                              onClick={() => setIsDockVisible(false)}
+                              className='p-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition cursor-pointer'
+                              title='Закрыть виджет'
                            >
                               <X className='w-3.5 h-3.5' />
                            </button>
@@ -5863,51 +5905,51 @@ export default function ClientsCallingTab({
                                     type='button'
                                     disabled={isSavingCallAction}
                                     onClick={() => handleCallAction('ORDER_PLACED')}
-                                    className='h-11 rounded-xl bg-emerald-700 hover:bg-emerald-600 text-white font-extrabold text-[11px] flex items-center justify-center gap-1 px-1 transition cursor-pointer shadow-sm active:scale-95'
+                                    className='h-11 rounded-xl bg-emerald-700 hover:bg-emerald-600 text-white font-extrabold text-[10.5px] flex items-center justify-center gap-1 px-1 transition cursor-pointer shadow-sm active:scale-95 overflow-hidden'
                                     title='Сделала заявку'
                                  >
                                     <span className='text-xs shrink-0'>🛒</span>
-                                    <span className='whitespace-nowrap'>Заявка</span>
+                                    <span className='truncate tracking-tight'>Заявка</span>
                                  </button>
                                  <button
                                     type='button'
                                     disabled={isSavingCallAction}
                                     onClick={() => handleOpenCallbackModal(currentClient)}
-                                    className='h-11 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-extrabold text-[10.5px] tracking-tight flex items-center justify-center gap-1 px-1 transition cursor-pointer shadow-sm ring-1 ring-amber-400/50 active:scale-95'
+                                    className='h-11 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-extrabold text-[10.5px] flex items-center justify-center gap-1 px-1 transition cursor-pointer shadow-sm ring-1 ring-amber-400/50 active:scale-95 overflow-hidden'
                                     title='Назначить перезвон'
                                  >
                                     <span className='text-xs shrink-0'>⏰</span>
-                                    <span className='whitespace-nowrap'>Перезвонить</span>
+                                    <span className='truncate tracking-tight'>Перезвон</span>
                                  </button>
                                  <button
                                     type='button'
                                     disabled={isSavingCallAction}
                                     onClick={() => handleCallAction('NO_ANSWER')}
-                                    className='h-11 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-extrabold text-[10px] tracking-tight flex items-center justify-center gap-1 px-1 transition cursor-pointer shadow-sm active:scale-95'
+                                    className='h-11 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-extrabold text-[10px] flex items-center justify-center gap-1 px-1 transition cursor-pointer shadow-sm active:scale-95 overflow-hidden'
                                     title='Не ответили'
                                  >
                                     <span className='text-xs shrink-0'>📵</span>
-                                    <span className='whitespace-nowrap'>Не отвечает</span>
+                                    <span className='truncate tracking-tight'>Не ответил</span>
                                  </button>
                                  <button
                                     type='button'
                                     disabled={isSavingCallAction}
                                     onClick={() => handleCallAction('SKIPPED')}
-                                    className='h-11 rounded-xl bg-sky-700 hover:bg-sky-600 text-white font-extrabold text-[10.5px] flex items-center justify-center gap-1 px-1 transition cursor-pointer shadow-sm active:scale-95'
+                                    className='h-11 rounded-xl bg-sky-700 hover:bg-sky-600 text-white font-extrabold text-[10px] flex items-center justify-center gap-1 px-1 transition cursor-pointer shadow-sm active:scale-95 overflow-hidden'
                                     title='Пропустили заявку'
                                  >
                                     <span className='text-xs shrink-0'>⏭️</span>
-                                    <span className='whitespace-nowrap'>Пропустили</span>
+                                    <span className='truncate tracking-tight'>Пропустили</span>
                                  </button>
                                  <button
                                     type='button'
                                     disabled={isSavingCallAction}
                                     onClick={() => handleCallAction('DID_NOT_PAY')}
-                                    className='h-11 rounded-xl bg-rose-700 hover:bg-rose-600 text-white font-extrabold text-[11px] flex items-center justify-center gap-1 px-1 transition cursor-pointer shadow-sm active:scale-95'
+                                    className='h-11 rounded-xl bg-rose-700 hover:bg-rose-600 text-white font-extrabold text-[10.5px] flex items-center justify-center gap-1 px-1 transition cursor-pointer shadow-sm active:scale-95 overflow-hidden'
                                     title='Не оплатила'
                                  >
                                     <span className='text-xs shrink-0'>⚠️</span>
-                                    <span className='whitespace-nowrap'>Не опл.</span>
+                                    <span className='truncate tracking-tight'>Не опл.</span>
                                  </button>
                               </div>
 
@@ -5952,10 +5994,11 @@ export default function ClientsCallingTab({
                            </div>
                         )
                      })()}
-                  </div>
-                ),
-                document.body
-             )}
+                  </>
+               )}
+            </div>,
+            document.body
+         )}
 
          {/* МОДАЛЬНОЕ ОКНО ФИКСАЦИИ ПЕРЕЗВОНОВ («ЖДУТ ЗВОНКА») — Портал в document.body */}
          {isMounted &&

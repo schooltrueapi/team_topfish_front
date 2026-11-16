@@ -76,6 +76,12 @@ export default function DashboardPage() {
       ? activeTab
       : (allowedTabIds[0] ?? null)
    const [clientsCount, setClientsCount] = useState<number>(0)
+   const [callingSessionInfo, setCallingSessionInfo] = useState<{
+      isActive: boolean
+      city?: string
+      current?: number
+      total?: number
+   } | null>(null)
    const [trialStats, setTrialStats] = useState({
       total: 0,
       inTrial: 0,
@@ -154,6 +160,12 @@ export default function DashboardPage() {
             if (savedSession) {
                const parsed = JSON.parse(savedSession)
                if (parsed?.isCallingSessionActive) {
+                  setCallingSessionInfo({
+                     isActive: true,
+                     city: parsed.sessionCity,
+                     current: (parsed.currentCallIndex || 0) + 1,
+                     total: parsed.sessionClients?.length || 0,
+                  })
                   setActiveTab('clients')
                }
             }
@@ -825,12 +837,49 @@ export default function DashboardPage() {
                            className={`px-4 py-2.5 rounded-xl font-bold text-xs sm:text-sm transition-all flex items-center gap-2 cursor-pointer ${
                               effectiveTab === 'clients'
                                  ? 'bg-gradient-to-r from-teal-600 to-emerald-600 text-white shadow-md shadow-teal-600/20'
+                                 : callingSessionInfo?.isActive
+                                 ? 'bg-emerald-50/90 text-emerald-950 border border-emerald-400 shadow-sm hover:bg-emerald-100 ring-2 ring-emerald-500/20'
                                  : 'bg-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-100'
                            }`}
                         >
-                           <PhoneCall className='w-4 h-4 text-emerald-300' />
+                           <div className='relative flex items-center justify-center'>
+                              <PhoneCall
+                                 className={`w-4 h-4 ${
+                                    effectiveTab === 'clients'
+                                       ? 'text-emerald-300'
+                                       : callingSessionInfo?.isActive
+                                       ? 'text-emerald-600'
+                                       : 'text-slate-500'
+                                 }`}
+                              />
+                              {callingSessionInfo?.isActive && (
+                                 <span className='absolute -top-1 -right-1 flex h-2 w-2'>
+                                    <span className='animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75'></span>
+                                    <span className='relative inline-flex rounded-full h-2 w-2 bg-emerald-500'></span>
+                                 </span>
+                              )}
+                           </div>
                            <span>База обзвона (Клиенты)</span>
-                           {clientsCount > 0 && (
+
+                           {/* Визуальная индикация активного обзвона */}
+                           {callingSessionInfo?.isActive ? (
+                              <span
+                                 className={`px-2 py-0.5 rounded-lg text-[10px] font-black tracking-tight flex items-center gap-1.5 shadow-2xs ${
+                                    effectiveTab === 'clients'
+                                       ? 'bg-white/20 text-white border border-white/30'
+                                       : 'bg-emerald-600 text-white animate-pulse'
+                                 }`}
+                                 title={`В работе: г. ${callingSessionInfo.city} (клиент ${callingSessionInfo.current} из ${callingSessionInfo.total})`}
+                              >
+                                 <span className='w-1.5 h-1.5 rounded-full bg-emerald-300 animate-ping'></span>
+                                 <span>{callingSessionInfo.city ? `г. ${callingSessionInfo.city}` : 'В работе'}</span>
+                                 {callingSessionInfo.total ? (
+                                    <span className='opacity-90 font-mono'>
+                                       #{callingSessionInfo.current}/{callingSessionInfo.total}
+                                    </span>
+                                 ) : null}
+                              </span>
+                           ) : clientsCount > 0 ? (
                               <span
                                  className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
                                     effectiveTab === 'clients'
@@ -840,7 +889,7 @@ export default function DashboardPage() {
                               >
                                  {clientsCount}
                               </span>
-                           )}
+                           ) : null}
                         </button>
                      )}
 
@@ -1078,6 +1127,7 @@ export default function DashboardPage() {
                      onCountChange={setClientsCount}
                      isGlobalTabActive={effectiveTab === 'clients'}
                      onRequestSwitchToCallingTab={() => setActiveTab('clients')}
+                     onCallingSessionStateChange={setCallingSessionInfo}
                   />
                </div>
             )}
